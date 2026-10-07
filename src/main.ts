@@ -5,9 +5,14 @@ import type { NestExpressApplication } from '@nestjs/platform-express';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import cookieParser from 'cookie-parser';
 import express from 'express';
-import helmet from 'helmet';
+import * as helmetModule from 'helmet';
 import { AppModule } from './app.module.js';
 import { DatabaseExceptionFilter } from './common/filters/database-exception.filter.js';
+
+// helmet ships CommonJS types; depending on the compiler settings (local `nest build` vs
+// Vercel's own TypeScript pass) the default import is either the function or the module object.
+type Helmet = (typeof helmetModule)['default'];
+const helmet: Helmet = (helmetModule as { default?: Helmet }).default ?? (helmetModule as unknown as Helmet);
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
