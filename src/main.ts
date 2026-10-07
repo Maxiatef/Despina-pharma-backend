@@ -9,10 +9,19 @@ import * as helmetModule from 'helmet';
 import { AppModule } from './app.module.js';
 import { DatabaseExceptionFilter } from './common/filters/database-exception.filter.js';
 
-// helmet ships CommonJS types; depending on the compiler settings (local `nest build` vs
-// Vercel's own TypeScript pass) the default import is either the function or the module object.
-type Helmet = (typeof helmetModule)['default'];
-const helmet: Helmet = (helmetModule as { default?: Helmet }).default ?? (helmetModule as unknown as Helmet);
+// helmet ships CommonJS types, and Vercel type-checks this file with different module settings
+// than `nest build`, so its typings resolve differently there. Do not rely on them: find the
+// helmet function at runtime (it may be wrapped in one or two `.default` layers) and type it here.
+type Middleware = (req: unknown, res: unknown, next: (err?: unknown) => void) => void;
+function resolveHelmet(mod: unknown): () => Middleware {
+  let candidate: unknown = mod;
+  for (let i = 0; i < 3 && typeof candidate !== 'function'; i++) {
+    candidate = (candidate as { default?: unknown } | null)?.default;
+  }
+  if (typeof candidate !== 'function') throw new Error('Could not load the helmet middleware');
+  return candidate as () => Middleware;
+}
+const helmet = resolveHelmet(helmetModule);
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
