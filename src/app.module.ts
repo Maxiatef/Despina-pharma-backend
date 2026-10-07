@@ -37,6 +37,9 @@ import { ApprovalsModule } from './modules/approvals/approvals.module.js';
 import { MessagesModule } from './modules/messages/messages.module.js';
 import { PortalModule } from './modules/portal/portal.module.js';
 
+// Scheduled jobs (Vercel Cron)
+import { CronModule } from './modules/cron/cron.module.js';
+
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true, validate: validateEnv }),
@@ -69,6 +72,8 @@ import { PortalModule } from './modules/portal/portal.module.js';
     ApprovalsModule,
     MessagesModule,
     PortalModule,
+
+    CronModule,
   ],
 })
 export class AppModule {}

@@ -40,7 +40,8 @@ export class EmailService implements OnModuleInit, OnModuleDestroy {
 
   onModuleInit() {
     const seconds = Number(this.config.get('EMAIL_WORKER_INTERVAL_SECONDS') ?? 30);
-    if (seconds > 0) this.timer = setInterval(() => void this.processQueue(), seconds * 1000);
+    // On Vercel (serverless) there is no long-running process: Vercel Cron calls /api/cron/run instead.
+    if (seconds > 0 && !process.env.VERCEL) this.timer = setInterval(() => void this.processQueue(), seconds * 1000);
   }
 
   onModuleDestroy() {

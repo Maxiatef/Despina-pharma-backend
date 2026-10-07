@@ -3,4 +3,4 @@ dist
 .env
 coverage
 *.tsbuildinfo
-storage
+/storage

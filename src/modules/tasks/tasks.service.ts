@@ -26,7 +26,8 @@ export class TasksService implements OnModuleInit, OnModuleDestroy {
   onModuleInit() {
     // Hourly tick: sends the daily overdue digest once per day at TASK_REMINDER_HOUR (server time),
     // and cleans up old rate-limit rows and expired sessions.
-    this.timer = setInterval(() => void this.tick(), 3_600_000);
+    // On Vercel (serverless) Vercel Cron calls /api/cron/run instead of this timer.
+    if (!process.env.VERCEL) this.timer = setInterval(() => void this.tick(), 3_600_000);
   }
 
   onModuleDestroy() {
