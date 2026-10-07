@@ -26,7 +26,10 @@
     "migration:show": "nest build && typeorm migration:show -d dist/database/data-source.js",
     "seed": "nest build && node dist/database/seed.js",
     "check:schema": "nest build && node scripts/check-schema.mjs",
-    "smoke": "node scripts/smoke-test.mjs"
+    "smoke": "node scripts/smoke-test.mjs",
+    "smoke:extended": "node scripts/smoke-extended.mjs",
+    "db:status": "node scripts/db-status.mjs",
+    "db:free-connections": "node scripts/db-free-connections.mjs"
   },
   "dependencies": {
     "@nestjs/common": "^12.0.1",

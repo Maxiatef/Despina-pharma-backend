@@ -404,6 +404,8 @@ async function cleanup() {
     await q(`DELETE FROM companies WHERE id = ANY($1)`, [companies]);
     await q(`DELETE FROM faqs WHERE topic LIKE 'smoke-%'`);
     await q(`DELETE FROM rate_limits WHERE key LIKE $1 OR key ~ ':(127\.0\.0\.1|::1)$'`, [`%@${DOMAIN}`]);
+    // Against a deployed API the limits are keyed by this machine's public IP (SMOKE_CLIENT_IP).
+    if (process.env.SMOKE_CLIENT_IP) await q(`DELETE FROM rate_limits WHERE key LIKE $1`, [`%:${process.env.SMOKE_CLIENT_IP}`]);
   });
   // stored files
   const root = process.env.STORAGE_DIR ?? './storage';

@@ -7,7 +7,7 @@ import { Inquiry } from './inquiry.entity.js';
 import { Project } from './project.entity.js';
 import { User } from './user.entity.js';
 
-/** Status history / notes – the activity timeline. */
+/** Status history / notes â€“ the activity timeline. */
 @Entity('status_events')
 export class StatusEvent extends BaseEntity {
   @Column({ name: 'inquiry_id', type: 'uuid', nullable: true })
