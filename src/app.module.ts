@@ -43,7 +43,14 @@ import { CronModule } from './modules/cron/cron.module.js';
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true, validate: validateEnv }),
-    TypeOrmModule.forRoot(dataSourceOptions),
+    // On Vercel a function has only seconds to answer: fail fast with a clear database error
+    // instead of TypeORM's default 9 silent retries (which ends in a function timeout).
+    TypeOrmModule.forRoot({
+      ...dataSourceOptions,
+      retryAttempts: process.env.VERCEL ? 1 : 9,
+      retryDelay: process.env.VERCEL ? 500 : 3000,
+      extra: { ...(dataSourceOptions.extra as object), connectionTimeoutMillis: 8000 },
+    }),
 
     AuditModule,
     RateLimitModule,

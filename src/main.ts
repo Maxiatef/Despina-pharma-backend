@@ -24,6 +24,13 @@ function resolveHelmet(mod: unknown): () => Middleware {
 const helmet = resolveHelmet(helmetModule);
 
 async function bootstrap() {
+  // Startup diagnostics (no secrets): shows in the Vercel function log.
+  const host = process.env.DB_HOST ?? '';
+  Logger.log(
+    `Database: host=${host.slice(0, 12)}…${host.slice(-22)} (${host.length} chars) port=${process.env.DB_PORT} ` +
+      `ssl=${process.env.DB_SSL} pool=${process.env.DB_POOL_MAX} vercel=${!!process.env.VERCEL}`,
+    'Bootstrap',
+  );
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
   app.set('trust proxy', 1);
   app.use(helmet());
