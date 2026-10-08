@@ -23,6 +23,10 @@ export class Inquiry extends BaseEntity {
   @Column({ name: 'form_type', type: 'enum', enum: FORM_TYPES, enumName: 'form_type' })
   formType: FormType;
 
+  /** Topic picked on the contact form (see INQUIRY_TYPES); null for the other forms. */
+  @Column({ name: 'inquiry_type', type: 'varchar', length: 40, nullable: true })
+  inquiryType: string | null;
+
   @Column({ type: 'enum', enum: INQUIRY_STATUSES, enumName: 'inquiry_status', default: 'new' })
   status: InquiryStatus;
 

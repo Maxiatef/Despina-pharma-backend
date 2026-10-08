@@ -474,6 +474,9 @@ async function cleanup() {
     await c.query(`DELETE FROM faqs WHERE topic LIKE 'smoke-%'`);
     await c.query(`DELETE FROM stage_templates WHERE name LIKE 'Smoke %'`);
     await c.query(`DELETE FROM audit_events WHERE entity_id = ANY($1)`, [ids]);
+    // Audit rows of the test's own actions (test records are named smoke… / Smoke Test … / @smoke-test.invalid).
+    await c.query(`DELETE FROM audit_events WHERE created_at > now() - interval '1 day' AND (summary ILIKE '%smoke%' OR entity_label ILIKE 'smoke%'
+      OR actor_email LIKE '%@smoke-test.invalid' OR path ILIKE '%smoke%' OR details::text ILIKE '%smoke-test.invalid%' OR details::text ILIKE '%smoke-x-%')`);
     await c.query('COMMIT');
     console.log(`  removed ${ids.length} CMS/template records`);
   } catch (e) {

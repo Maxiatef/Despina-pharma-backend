@@ -351,7 +351,7 @@ async function run() {
   const jobs = await call('GET', `/email-jobs?inquiryId=${r1.body.id}`, { token: admin });
   check('emails queued (owner notice + customer ack), not sent – Resend pending',
     jobs.status === 200 && jobs.body.items.some((j) => j.kind === 'customer_ack' && j.status === 'queued'), jobs.body.items?.map((j) => `${j.kind}:${j.status}`));
-  const audit = await call('GET', `/audit-events?entityId=${project.id}`, { token: admin });
+  const audit = await call('GET', `/audit-events?projectId=${project.id}`, { token: admin });
   check('audit trail for the project', audit.status === 200 && audit.body.total >= 3);
   const tpl = await call('GET', '/stage-templates', { token: admin });
   check('stage templates', tpl.status === 200 && tpl.body.some((t) => t.isDefault));
@@ -399,6 +399,9 @@ async function cleanup() {
     await q(`DELETE FROM inquiries WHERE id = ANY($1)`, [inquiries]);
     await q(`DELETE FROM tasks WHERE assignee_id = ANY($1) OR created_by = ANY($1)`, [users]);
     await q(`DELETE FROM audit_events WHERE actor_id = ANY($1) OR entity_id = ANY($2)`, [users, [...projects, ...inquiries, ...companies, ...contacts, ...users]]);
+    // Audit rows written for test actions (incl. website-visitor rows and rows that point at test projects/leads).
+    await q(`DELETE FROM audit_events WHERE actor_email LIKE $1 OR summary LIKE $2 OR project_id = ANY($3) OR inquiry_id = ANY($4) OR company_id = ANY($5)`,
+      [`%@${DOMAIN}`, `%@${DOMAIN}%`, projects, inquiries, companies]);
     await q(`DELETE FROM users WHERE id = ANY($1)`, [users]);
     await q(`DELETE FROM contacts WHERE id = ANY($1)`, [contacts]);
     await q(`DELETE FROM companies WHERE id = ANY($1)`, [companies]);

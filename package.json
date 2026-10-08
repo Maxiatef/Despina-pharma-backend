@@ -29,7 +29,9 @@
     "smoke": "node scripts/smoke-test.mjs",
     "smoke:extended": "node scripts/smoke-extended.mjs",
     "db:status": "node scripts/db-status.mjs",
-    "db:free-connections": "node scripts/db-free-connections.mjs"
+    "db:free-connections": "node scripts/db-free-connections.mjs",
+    "smoke:features": "node scripts/smoke-features.mjs",
+    "smoke:audit": "node scripts/smoke-audit.mjs"
   },
   "dependencies": {
     "@nestjs/common": "^12.0.1",

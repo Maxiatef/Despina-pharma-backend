@@ -8,11 +8,22 @@ import {
 import { AuditService } from '../audit/audit.service.js';
 import { EmailService } from '../email/email.service.js';
 import { STAFF_ROLES } from '../../common/enums.js';
-import type { FormType, InquiryStatus } from '../../common/enums.js';
+import type { FormType, InquiryStatus, InquiryType } from '../../common/enums.js';
 import { csvCell, paged } from '../../common/utils.js';
+import { addBusinessHours, businessConfig } from '../../common/business-hours.js';
 import { verifyUploadToken } from '../documents/upload-token.js';
 import { maxFiles } from '../documents/documents.service.js';
 import { InquiryQueryDto, SubmitInquiryDto } from './dto/inquiry.dto.js';
+
+const FORM_LABELS: Record<FormType, string> = {
+  contact: 'Contact', new_customer: 'Company profile', new_product: 'Product brief', sample_request: 'Sample request',
+  sample_feedback: 'Sample feedback', service: 'Service inquiry',
+};
+export const INQUIRY_TYPE_LABELS: Record<InquiryType, string> = {
+  general: 'General question', new_product: 'New product development', private_label: 'Private label / stock formula',
+  sample_request: 'Sample request', quotation: 'Quotation / pricing', packaging_filling: 'Packaging & filling',
+  existing_project: 'Existing project', partnership: 'Partnership / supplier', other: 'Other',
+};
 
 export interface RequestMeta {
   ip: string | null;
@@ -55,6 +66,7 @@ export class InquiriesService {
           m.getRepository(Inquiry).create({
             referenceNo,
             formType: dto.formType,
+            inquiryType: dto.inquiryType ?? null,
             status: 'new',
             contactId: contact.id,
             companyId: company?.id ?? null,
@@ -83,12 +95,15 @@ export class InquiriesService {
         }
 
         await m.getRepository(StatusEvent).insert({ inquiryId: inquiry.id, fromStatus: null, toStatus: 'new', note: 'Submitted from website' });
+        const followUp = await this.createFollowUp(m, inquiry, dto);
 
         // Two separate emails: one to the owner/department, one acknowledgement to the customer.
         const data = {
           inquiryId: inquiry.id,
           referenceNo,
           formType: dto.formType,
+          inquiryType: dto.inquiryType ? INQUIRY_TYPE_LABELS[dto.inquiryType] : undefined,
+          followUpDue: followUp.dueAt?.toISOString(),
           contactName: [contact.firstName, contact.lastName].filter(Boolean).join(' '),
           contactEmail: contact.email,
           companyName: company?.name,
@@ -111,6 +126,34 @@ export class InquiriesService {
       }
       throw err;
     }
+  }
+
+  /**
+   * Every new inquiry gets a follow-up task in the dashboard, due after FOLLOW_UP_BUSINESS_HOURS business hours.
+   * Optional rule: AUTO_ASSIGN_<FORM_TYPE> (or AUTO_ASSIGN_DEFAULT) = a staff email → the lead and the task go to that person.
+   */
+  private async createFollowUp(m: EntityManager, inquiry: Inquiry, dto: SubmitInquiryDto) {
+    const assigneeEmail = (process.env[`AUTO_ASSIGN_${dto.formType.toUpperCase()}`] || process.env.AUTO_ASSIGN_DEFAULT || '').trim();
+    const found = assigneeEmail
+      ? await m.getRepository(User).createQueryBuilder('u').where('lower(u.email) = lower(:e) AND u.isActive', { e: assigneeEmail }).getOne()
+      : null;
+    const assignee = found && STAFF_ROLES.includes(found.role) ? found : null;
+    if (assignee) {
+      await m.getRepository(Assignment).insert({ inquiryId: inquiry.id, userId: assignee.id, assignedBy: null });
+      await m.getRepository(Inquiry).update(inquiry.id, { status: 'assigned' });
+      await m.getRepository(StatusEvent).insert({ inquiryId: inquiry.id, fromStatus: 'new', toStatus: 'assigned', note: `Automatically assigned to ${assignee.email}` });
+    }
+    const topic = [FORM_LABELS[dto.formType], dto.inquiryType && INQUIRY_TYPE_LABELS[dto.inquiryType]].filter(Boolean).join(' – ');
+    const cfg = businessConfig();
+    return m.getRepository(Task).save(
+      m.getRepository(Task).create({
+        inquiryId: inquiry.id,
+        assigneeId: assignee?.id ?? null,
+        title: `Follow up ${inquiry.referenceNo} (${topic})`.slice(0, 300),
+        priority: dto.formType === 'sample_feedback' || dto.formType === 'sample_request' ? 'high' : 'normal',
+        dueAt: addBusinessHours(new Date(), cfg.followUpHours, cfg),
+      }),
+    );
   }
 
   /** OWNER_NOTIFICATION_EMAIL, optionally overridden per form type, e.g. NOTIFY_SAMPLE_REQUEST=lab@... */
@@ -213,6 +256,7 @@ export class InquiriesService {
     const statuses = q.status ? (Array.isArray(q.status) ? q.status : [q.status]) : [];
     if (statuses.length) qb.andWhere('i.status IN (:...statuses)', { statuses });
     if (q.formType) qb.andWhere('i.formType = :formType', { formType: q.formType });
+    if (q.inquiryType) qb.andWhere('i.inquiryType = :inquiryType', { inquiryType: q.inquiryType });
     if (q.companyId) qb.andWhere('i.companyId = :companyId', { companyId: q.companyId });
     if (q.assigneeId) qb.andWhere('a.userId = :assigneeId', { assigneeId: q.assigneeId });
     if (q.unassigned === 'true') qb.andWhere('a.id IS NULL');
@@ -288,9 +332,9 @@ export class InquiriesService {
     const qb = this.baseQuery(q).take(10_000);
     const { entities, raw } = await qb.getRawAndEntities();
     const rows = this.shape(entities, raw);
-    const header = ['reference_no', 'created_at', 'form_type', 'status', 'first_name', 'last_name', 'email', 'company', 'assignee', 'source_page', 'message'];
+    const header = ['reference_no', 'created_at', 'form_type', 'inquiry_type', 'status', 'first_name', 'last_name', 'email', 'company', 'assignee', 'source_page', 'message'];
     const lines = rows.map((r) =>
-      [r.referenceNo, r.createdAt, r.formType, r.status, r.contact.firstName, r.contact.lastName, r.contact.email,
+      [r.referenceNo, r.createdAt, r.formType, r.inquiryType, r.status, r.contact.firstName, r.contact.lastName, r.contact.email,
         r.companyName, r.assignee?.email, r.sourcePage, r.message].map(csvCell).join(','),
     );
     return [header.join(','), ...lines].join('\r\n');
@@ -362,6 +406,12 @@ export class InquiriesService {
     await this.ds.transaction(async (m) => {
       await m.getRepository(Assignment).update({ inquiryId: id, unassignedAt: IsNull() }, { unassignedAt: new Date() });
       await m.getRepository(Assignment).insert({ inquiryId: id, userId, assignedBy: actorId });
+      // The lead's open tasks that nobody owns go to the same person (tasks someone already owns keep their owner).
+      const taken = await m.getRepository(Task).createQueryBuilder().update()
+        .set({ assigneeId: userId }).where('inquiry_id = :id AND assignee_id IS NULL AND completed_at IS NULL', { id }).returning(['id', 'title']).execute();
+      if (taken.raw.length) {
+        await this.audit.log({ actorId, action: 'task.assign', entityType: 'task', entityId: null, after: { assigneeId: userId, tasks: taken.raw } }, m);
+      }
       if (inquiry.status === 'new') {
         await m.getRepository(Inquiry).update(id, { status: 'assigned' });
         await m.getRepository(StatusEvent).insert({ inquiryId: id, actorId, fromStatus: 'new', toStatus: 'assigned', note: `Assigned to ${user.email}` });

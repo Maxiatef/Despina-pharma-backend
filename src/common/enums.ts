@@ -43,11 +43,19 @@ export type ProjectStatus = (typeof PROJECT_STATUSES)[number];
 export const SAMPLE_STATUSES = ['requested', 'in_development', 'shipped', 'feedback_received', 'approved', 'rejected'] as const;
 export type SampleStatus = (typeof SAMPLE_STATUSES)[number];
 
-export const QUOTE_STATUSES = ['draft', 'sent', 'accepted', 'rejected', 'expired'] as const;
+export const QUOTE_STATUSES = ['draft', 'sent', 'accepted', 'rejected', 'expired', 'changes_requested'] as const;
 export type QuoteStatus = (typeof QUOTE_STATUSES)[number];
+
+/** How a customer can answer a sent quote besides accepting it. */
+export const QUOTE_RESPONSES = ['declined', 'changes_requested'] as const;
+export type QuoteResponseDecision = (typeof QUOTE_RESPONSES)[number];
+
+/** Contact-form topics (the "inquiry type" field). */
+export const INQUIRY_TYPES = [
+  'general', 'new_product', 'private_label', 'sample_request', 'quotation', 'packaging_filling', 'existing_project', 'partnership', 'other',
+] as const;
+export type InquiryType = (typeof INQUIRY_TYPES)[number];
 
 export const APPROVAL_TARGETS = ['document_version', 'sample_revision', 'quote_version', 'brief_version'] as const;
 export type ApprovalTarget = (typeof APPROVAL_TARGETS)[number];
 
-export const AUDIT_ENTITIES = ['company', 'contact', 'user', 'inquiry', 'project', 'document', 'sample', 'quote', 'approval', 'catalog_item', 'service', 'faq', 'settings'] as const;
-export type AuditEntity = (typeof AUDIT_ENTITIES)[number];

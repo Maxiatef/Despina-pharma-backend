@@ -32,6 +32,10 @@ export class CompleteStageDto {
   @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(2000) note?: string;
 }
 
+export class StartProductStagesDto {
+  @ApiPropertyOptional({ description: 'Defaults to the project template, then the default template' }) @IsOptional() @IsUUID() stageTemplateId?: string;
+}
+
 export class CreateProjectProductDto {
   @ApiPropertyOptional({ description: '"Add to project" from the catalog' }) @IsOptional() @IsUUID() catalogItemId?: string;
   @ApiPropertyOptional() @IsOptional() @IsUUID() serviceId?: string;

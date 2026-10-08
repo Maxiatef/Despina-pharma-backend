@@ -1,8 +1,8 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { ArrayMinSize, IsArray, IsDateString, IsIn, IsNumber, IsOptional, IsString, IsUUID, Length, MaxLength, Min, ValidateNested } from 'class-validator';
-import { QUOTE_STATUSES } from '../../../common/enums.js';
-import type { QuoteStatus } from '../../../common/enums.js';
+import { ArrayMinSize, IsArray, IsDateString, IsIn, IsNumber, IsOptional, IsString, IsUUID, Length, MaxLength, Min, MinLength, ValidateIf, ValidateNested } from 'class-validator';
+import { QUOTE_RESPONSES, QUOTE_STATUSES } from '../../../common/enums.js';
+import type { QuoteResponseDecision, QuoteStatus } from '../../../common/enums.js';
 export class QuoteLineDto {
   @ApiProperty() @IsString() @MaxLength(500) description: string;
   @ApiPropertyOptional() @IsOptional() @IsUUID() projectProductId?: string;
@@ -15,6 +15,15 @@ export class QuoteVersionDto {
   @ApiPropertyOptional({ description: 'PDF of the quote, if uploaded' }) @IsOptional() @IsUUID() documentVersionId?: string;
   @ApiProperty({ type: [QuoteLineDto] }) @IsArray() @ArrayMinSize(1) @ValidateNested({ each: true }) @Type(() => QuoteLineDto) lines: QuoteLineDto[];
 }
+/** Customer's answer to the latest sent version (acceptance goes through POST /projects/:id/approvals). */
+export class QuoteResponseDto {
+  @ApiProperty({ enum: QUOTE_RESPONSES }) @IsIn(QUOTE_RESPONSES) decision: QuoteResponseDecision;
+  @ApiProperty({ description: 'ID of the exact quote version answered (must be the latest)' }) @IsUUID() quoteVersionId: string;
+  @ApiPropertyOptional({ description: 'Required when requesting changes: what should change' })
+  @ValidateIf((o: QuoteResponseDto) => o.decision === 'changes_requested' || o.note !== undefined)
+  @IsString() @MinLength(5) @MaxLength(5000) note?: string;
+}
+
 export class UpdateQuoteDto {
   @ApiProperty({ enum: QUOTE_STATUSES }) @IsIn(QUOTE_STATUSES) status: QuoteStatus;
 }

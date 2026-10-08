@@ -1,5 +1,5 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
-import { DataSource, EntityManager, In } from 'typeorm';
+import { DataSource, EntityManager, In, IsNull } from 'typeorm';
 import {
   CatalogItem, Company, Contact, Inquiry, InquiryItem, Project, ProjectProduct, ProjectStage, Quote, Sample,
   Service, StageTemplate, StatusEvent, User,
@@ -60,6 +60,29 @@ export class ProjectsService {
     return stages;
   }
 
+  /**
+   * Each product line gets its own stage track (copied from a template) so e.g. a packaging-only line
+   * is not forced through formulation. Uses the given template, else the project's, else the default one.
+   */
+  private async createProductStages(m: EntityManager, product: ProjectProduct, templateId?: string | null) {
+    const repo = m.getRepository(StageTemplate);
+    const project = await m.getRepository(Project).findOneByOrFail({ id: product.projectId });
+    const id = templateId ?? project.stageTemplateId;
+    const template = id ? await repo.findOneBy({ id }) : await repo.findOneBy({ isDefault: true });
+    if (templateId && !template) throw new BadRequestException('Stage template not found');
+    const defs = template?.stages?.length ? template.stages : DEFAULT_STAGES;
+    const stages = await m.getRepository(ProjectStage).save(
+      defs.map((d, i) =>
+        m.getRepository(ProjectStage).create({
+          projectId: product.projectId, projectProductId: product.id, name: d.name, sortOrder: i,
+          requiresRole: d.requiresRole ?? null, startedAt: i === 0 ? new Date() : null,
+        }),
+      ),
+    );
+    await m.getRepository(ProjectProduct).update(product.id, { currentStageId: stages[0].id });
+    return stages;
+  }
+
   private async insertProject(m: EntityManager, data: Partial<Project>) {
     for (let attempt = 0; attempt < 5; attempt++) {
       try {
@@ -112,7 +135,7 @@ export class ProjectsService {
       const catalog = await m.getRepository(CatalogItem).findBy({ id: In(items.map((i) => i.catalogItemId).filter(Boolean) as string[]) });
       const services = await m.getRepository(Service).findBy({ id: In(items.map((i) => i.serviceId).filter(Boolean) as string[]) });
       for (const it of items) {
-        await m.getRepository(ProjectProduct).insert({
+        const product = await m.getRepository(ProjectProduct).save({
           projectId: project.id,
           catalogItemId: it.catalogItemId,
           serviceId: it.serviceId,
@@ -120,6 +143,7 @@ export class ProjectsService {
           targetQuantity: it.quantity,
           notes: it.notes,
         });
+        await this.createProductStages(m, product, dto.stageTemplateId);
       }
       // Move inquiry messages, tasks and documents along with the project.
       await m.query(`UPDATE documents SET project_id = $1 WHERE inquiry_id = $2 AND project_id IS NULL`, [project.id, inquiryId]);
@@ -168,20 +192,34 @@ export class ProjectsService {
     const m = this.ds.manager;
     const [company, stages, products, quotes, owner] = await Promise.all([
       m.getRepository(Company).findOneBy({ id: project.companyId }),
-      m.getRepository(ProjectStage).find({ where: { projectId: id }, order: { sortOrder: 'ASC' } }),
+      m.getRepository(ProjectStage).find({ where: { projectId: id, projectProductId: IsNull() }, order: { sortOrder: 'ASC' } }),
       m.getRepository(ProjectProduct).find({ where: { projectId: id }, order: { createdAt: 'ASC' } }),
       m.getRepository(Quote).find({ where: { projectId: id }, order: { createdAt: 'DESC' } }),
       project.ownerId ? m.getRepository(User).findOneBy({ id: project.ownerId }) : null,
     ]);
-    const samples = products.length
-      ? await m.getRepository(Sample).find({ where: { projectProductId: In(products.map((p) => p.id)) }, order: { createdAt: 'ASC' } })
-      : [];
+    const [samples, productStages] = products.length
+      ? await Promise.all([
+          m.getRepository(Sample).find({ where: { projectProductId: In(products.map((p) => p.id)) }, order: { createdAt: 'ASC' } }),
+          m.getRepository(ProjectStage).find({ where: { projectProductId: In(products.map((p) => p.id)) }, order: { sortOrder: 'ASC' } }),
+        ])
+      : [[], []];
     return {
       ...project,
       company,
       owner: owner ? { id: owner.id, email: owner.email } : null,
       stages,
-      products: products.map((p) => ({ ...p, samples: samples.filter((s) => s.projectProductId === p.id) })),
+      products: products.map((p) => {
+        const own = productStages.filter((s) => s.projectProductId === p.id);
+        return {
+          ...p,
+          samples: samples.filter((s) => s.projectProductId === p.id),
+          stages: own,
+          // Roll-up for the project view: counts only, no invented percentages.
+          stageSummary: own.length
+            ? { done: own.filter((s) => s.completedAt).length, total: own.length, current: own.find((s) => s.id === p.currentStageId)?.name ?? null }
+            : null,
+        };
+      }),
       quotes: isStaff(user) ? quotes : quotes.filter((q) => q.status !== 'draft'),
     };
   }
@@ -193,28 +231,39 @@ export class ProjectsService {
     return this.get(user, id);
   }
 
-  /** Complete the current stage and start the next one. Gated stages (e.g. Quality Release) need the right role. */
+  /**
+   * Complete the current stage and start the next one. Gated stages (e.g. Quality Release) need the right role.
+   * Works for the project-level track and for a product line's own track.
+   */
   async completeStage(user: AuthUser, projectId: string, stageId: string, note?: string) {
     const project = await this.access.project(user, projectId);
     await this.ds.transaction(async (m) => {
-      const stages = await m.getRepository(ProjectStage).find({ where: { projectId }, order: { sortOrder: 'ASC' } });
+      const target = await m.getRepository(ProjectStage).findOneBy({ id: stageId, projectId });
+      if (!target) throw new NotFoundException('Stage not found');
+      const product = target.projectProductId ? await m.getRepository(ProjectProduct).findOneByOrFail({ id: target.projectProductId }) : null;
+      const stages = await m.getRepository(ProjectStage).find({
+        where: { projectId, projectProductId: product ? product.id : IsNull() }, order: { sortOrder: 'ASC' },
+      });
       const idx = stages.findIndex((s) => s.id === stageId);
-      if (idx < 0) throw new NotFoundException('Stage not found');
       const stage = stages[idx];
       if (stage.completedAt) throw new BadRequestException('Stage already completed');
-      if (project.currentStageId !== stage.id) throw new BadRequestException('Only the current stage can be completed');
+      if ((product ? product.currentStageId : project.currentStageId) !== stage.id) throw new BadRequestException('Only the current stage can be completed');
       if (stage.requiresRole && user.role !== stage.requiresRole && user.role !== 'admin') {
         throw new ForbiddenException(`Only ${stage.requiresRole} staff can complete "${stage.name}"`);
       }
       await m.getRepository(ProjectStage).update(stage.id, { completedAt: new Date(), completedBy: user.id });
       const next = stages[idx + 1];
-      if (next) {
-        await m.getRepository(ProjectStage).update(next.id, { startedAt: new Date() });
+      if (next) await m.getRepository(ProjectStage).update(next.id, { startedAt: new Date() });
+      if (product) {
+        // Last stage done → the line has no current stage any more (all complete).
+        await m.getRepository(ProjectProduct).update(product.id, { currentStageId: next?.id ?? null });
+      } else if (next) {
         await m.getRepository(Project).update(projectId, { currentStageId: next.id });
       } else {
         await m.getRepository(Project).update(projectId, { status: 'completed' });
       }
-      await m.getRepository(StatusEvent).insert({ projectId, actorId: user.id, note: `Stage "${stage.name}" completed${note ? `: ${note}` : ''}` });
+      const where = product ? ` for "${product.name}"` : '';
+      await m.getRepository(StatusEvent).insert({ projectId, actorId: user.id, note: `Stage "${stage.name}"${where} completed${note ? `: ${note}` : ''}` });
       await this.audit.log({ actorId: user.id, action: 'project.stage_complete', entityType: 'project', entityId: projectId, after: { stageId, note } }, m);
     });
     return this.get(user, projectId);
@@ -241,10 +290,30 @@ export class ProjectsService {
       name ??= s.title;
     }
     if (!name) throw new BadRequestException('Name, catalogItemId or serviceId is required');
-    const repo = this.ds.getRepository(ProjectProduct);
-    const product = await repo.save(repo.create({ ...dto, name, projectId }));
+    const product = await this.ds.transaction(async (m) => {
+      const saved = await m.getRepository(ProjectProduct).save(m.getRepository(ProjectProduct).create({ ...dto, name, projectId }));
+      await this.createProductStages(m, saved);
+      return saved;
+    });
     await this.audit.log({ actorId: user.id, action: 'project.product_add', entityType: 'project', entityId: projectId, after: product });
     return product;
+  }
+
+  /** Start (or restart, while nothing is completed yet) a product line's stage track from a template. */
+  async startProductStages(user: AuthUser, productId: string, stageTemplateId?: string) {
+    const { product, project } = await this.access.product(user, productId);
+    await this.ds.transaction(async (m) => {
+      const existing = await m.getRepository(ProjectStage).findBy({ projectProductId: product.id });
+      if (existing.some((s) => s.completedAt)) throw new ConflictException('Stages of this product have already been completed; they cannot be replaced');
+      if (existing.length) {
+        await m.getRepository(ProjectProduct).update(product.id, { currentStageId: null });
+        await m.getRepository(ProjectStage).delete({ projectProductId: product.id });
+      }
+      await this.createProductStages(m, product, stageTemplateId ?? null);
+      await m.getRepository(StatusEvent).insert({ projectId: project.id, actorId: user.id, note: `Stages set for "${product.name}"` });
+      await this.audit.log({ actorId: user.id, action: 'project.product_stages', entityType: 'project', entityId: project.id, after: { productId, stageTemplateId } }, m);
+    });
+    return this.get(user, project.id);
   }
 
   async updateProduct(user: AuthUser, productId: string, dto: UpdateProjectProductDto) {

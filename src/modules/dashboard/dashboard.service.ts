@@ -8,7 +8,7 @@ export class DashboardService {
   constructor(private readonly ds: DataSource) {}
 
   async overview(user: AuthUser) {
-    const [leads, myWork, projects, emails, recent, bySource] = await Promise.all([
+    const [leads, myWork, projects, emails, recent, bySource, openTasks] = await Promise.all([
       this.ds.query(`
         SELECT
           count(*) FILTER (WHERE status = 'new')::int AS new,
@@ -24,7 +24,10 @@ export class DashboardService {
            (SELECT count(*)::int FROM tasks WHERE assignee_id = $1 AND completed_at IS NULL) AS open_tasks,
            (SELECT count(*)::int FROM tasks WHERE assignee_id = $1 AND completed_at IS NULL AND due_at < now()) AS overdue_tasks,
            (SELECT count(*)::int FROM assignments a JOIN inquiries i ON i.id = a.inquiry_id
-              WHERE a.user_id = $1 AND a.unassigned_at IS NULL AND i.status NOT IN ('won','lost','closed','not_a_fit')) AS my_open_leads`,
+              WHERE a.user_id = $1 AND a.unassigned_at IS NULL AND i.status NOT IN ('won','lost','closed','not_a_fit')) AS my_open_leads,
+           (SELECT count(*)::int FROM tasks WHERE completed_at IS NULL) AS all_open_tasks,
+           (SELECT count(*)::int FROM tasks WHERE completed_at IS NULL AND due_at < now()) AS all_overdue_tasks,
+           (SELECT count(*)::int FROM tasks WHERE completed_at IS NULL AND assignee_id IS NULL) AS unassigned_tasks`,
         [user.id],
       ),
       this.ds.query(`
@@ -38,6 +41,15 @@ export class DashboardService {
       this.ds.query(`
         SELECT form_type, count(*)::int AS count FROM inquiries
         WHERE created_at > now() - interval '30 days' GROUP BY form_type ORDER BY count DESC`),
+      this.ds.query(
+        `SELECT t.id, t.title, t.priority, t.due_at, t.inquiry_id, t.project_id, t.assignee_id, u.email AS assignee_email,
+                i.reference_no, p.code AS project_code
+         FROM tasks t LEFT JOIN users u ON u.id = t.assignee_id
+         LEFT JOIN inquiries i ON i.id = t.inquiry_id LEFT JOIN projects p ON p.id = t.project_id
+         WHERE t.completed_at IS NULL AND (t.assignee_id = $1 OR t.assignee_id IS NULL)
+         ORDER BY t.due_at ASC NULLS LAST LIMIT 8`,
+        [user.id],
+      ),
     ]);
     return {
       leads: leads[0],
@@ -46,6 +58,7 @@ export class DashboardService {
       emailsLast30Days: Object.fromEntries(emails.map((r: { status: string; count: number }) => [r.status, r.count])),
       leadsByFormLast30Days: bySource,
       recentLeads: recent,
+      openTasks,
     };
   }
 

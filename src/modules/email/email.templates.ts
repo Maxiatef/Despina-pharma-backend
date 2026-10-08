@@ -27,6 +27,8 @@ export function renderTemplate(name: TemplateName, data: Record<string, any>, ap
           `Reference: ${data.referenceNo}`,
           `From: ${data.contactName} <${data.contactEmail}>`,
           data.companyName ? `Company: ${data.companyName}` : '',
+          data.inquiryType ? `Inquiry type: ${data.inquiryType}` : '',
+          data.followUpDue ? `Follow-up task due: ${new Date(data.followUpDue).toUTCString()}` : '',
           data.sourcePage ? `Page: ${data.sourcePage}` : '',
           '',
           data.message ?? '',

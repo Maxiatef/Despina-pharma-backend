@@ -15,8 +15,13 @@ export class CreateTaskDto {
 
 export class UpdateTaskDto extends PartialType(CreateTaskDto) {}
 
+/** Give a task to a staff member, move it to someone else, or take it back (userId null = unassigned). */
+export class AssignTaskDto {
+  @ApiPropertyOptional({ nullable: true, description: 'Staff user id, or null to unassign' }) @IsOptional() @IsUUID() userId?: string | null;
+}
+
 export class TaskQueryDto extends PageQueryDto {
-  @ApiPropertyOptional({ description: '"me" or a user id' }) @IsOptional() @IsString() assignee?: string;
+  @ApiPropertyOptional({ description: '"me", "unassigned" or a user id' }) @IsOptional() @IsString() assignee?: string;
   @ApiPropertyOptional() @IsOptional() @IsUUID() inquiryId?: string;
   @ApiPropertyOptional() @IsOptional() @IsUUID() projectId?: string;
   @ApiPropertyOptional({ enum: ['open', 'done', 'overdue', 'all'] }) @IsOptional() @IsIn(['open', 'done', 'overdue', 'all']) state?: string;

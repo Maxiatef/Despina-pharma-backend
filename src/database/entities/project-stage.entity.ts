@@ -4,6 +4,7 @@ import { BaseEntity } from './base.entity.js';
 import { USER_ROLES } from '../../common/enums.js';
 import type { UserRole } from '../../common/enums.js';
 import { Project } from './project.entity.js';
+import { ProjectProduct } from './project-product.entity.js';
 import { User } from './user.entity.js';
 
 @Entity('project_stages')
@@ -14,6 +15,14 @@ export class ProjectStage extends BaseEntity {
   @ManyToOne(() => Project, (x) => x.stages, { onDelete: 'CASCADE', nullable: false })
   @JoinColumn({ name: 'project_id' })
   project?: Relation<Project>;
+
+  /** Set for the stages of one product line; NULL for the project-level stages. */
+  @Column({ name: 'project_product_id', type: 'uuid', nullable: true })
+  projectProductId: string | null;
+
+  @ManyToOne(() => ProjectProduct, { onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'project_product_id' })
+  projectProduct?: Relation<ProjectProduct> | null;
 
   @Column({ type: 'varchar', length: 150 })
   name: string;

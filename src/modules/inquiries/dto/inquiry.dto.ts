@@ -4,8 +4,8 @@ import {
   ArrayMaxSize, Equals, IsArray, IsDefined, IsBoolean, IsDateString, IsEmail, IsIn, IsInt, IsObject, IsOptional,
   IsString, IsUUID, Max, MaxLength, Min, MinLength, ValidateNested,
 } from 'class-validator';
-import { FORM_TYPES, INQUIRY_STATUSES } from '../../../common/enums.js';
-import type { FormType, InquiryStatus } from '../../../common/enums.js';
+import { FORM_TYPES, INQUIRY_STATUSES, INQUIRY_TYPES } from '../../../common/enums.js';
+import type { FormType, InquiryStatus, InquiryType } from '../../../common/enums.js';
 import { PageQueryDto } from '../../../common/utils.js';
 
 export class InquiryContactDto {
@@ -47,6 +47,7 @@ export class InquiryConsentDto {
 
 export class SubmitInquiryDto {
   @ApiProperty({ enum: FORM_TYPES }) @IsIn(FORM_TYPES) formType: FormType;
+  @ApiPropertyOptional({ enum: INQUIRY_TYPES, description: 'Topic chosen on the contact form' }) @IsOptional() @IsIn(INQUIRY_TYPES) inquiryType?: InquiryType;
   @ApiProperty({ description: 'Unique per submission (UUID made by the browser). Retries with the same key return the same inquiry.' })
   @IsString() @MinLength(8) @MaxLength(100) idempotencyKey: string;
   @ApiProperty({ type: InquiryContactDto }) @IsDefined() @ValidateNested() @Type(() => InquiryContactDto) contact: InquiryContactDto;
@@ -69,6 +70,7 @@ export class InquiryQueryDto extends PageQueryDto {
   @ApiPropertyOptional({ enum: INQUIRY_STATUSES, isArray: true }) @IsOptional() @IsIn(INQUIRY_STATUSES, { each: true })
   status?: InquiryStatus | InquiryStatus[];
   @ApiPropertyOptional({ enum: FORM_TYPES }) @IsOptional() @IsIn(FORM_TYPES) formType?: FormType;
+  @ApiPropertyOptional({ enum: INQUIRY_TYPES }) @IsOptional() @IsIn(INQUIRY_TYPES) inquiryType?: InquiryType;
   @ApiPropertyOptional() @IsOptional() @IsUUID() assigneeId?: string;
   @ApiPropertyOptional() @IsOptional() @IsIn(['true', 'false']) unassigned?: string;
   @ApiPropertyOptional({ description: 'Has an open task past its due date' }) @IsOptional() @IsIn(['true', 'false']) overdue?: string;

@@ -59,7 +59,7 @@ export class AuthService {
       }),
     );
     await this.users.update(user.id, { lastLoginAt: new Date() });
-    await this.audit.log({ actorId: user.id, action: 'auth.login', entityType: 'user', entityId: user.id, ip });
+    // Sign-ins are not written to the audit log (owner decision); sessions + last_login_at record them.
 
     const staffNeedsMfa =
       STAFF_ROLES.includes(user.role) && !user.mfaEnabled && this.config.get('REQUIRE_STAFF_MFA') !== 'false';

@@ -1,12 +1,13 @@
 import { BadRequestException, ConflictException, Injectable } from '@nestjs/common';
 import { DataSource, In } from 'typeorm';
 import type { EntityManager } from 'typeorm';
-import { Approval, Quote, QuoteLine, QuoteVersion } from '../../database/entities/index.js';
+import { Approval, Quote, QuoteLine, QuoteResponse, QuoteVersion, StatusEvent, Task } from '../../database/entities/index.js';
 import { AuditService } from '../audit/audit.service.js';
 import type { AuthUser } from '../../common/decorators/auth.decorators.js';
 import { EmailService } from '../email/email.service.js';
 import { isStaff, ProjectAccessService, requireStaff } from '../projects/project-access.service.js';
-import { QuoteVersionDto } from './dto/quotes.dto.js';
+import { QuoteResponseDto, QuoteVersionDto } from './dto/quotes.dto.js';
+import { addBusinessHours, businessConfig } from '../../common/business-hours.js';
 
 const cents = (n: number) => Math.round(n * 100) / 100;
 
@@ -66,10 +67,14 @@ export class QuotesService {
     const approvals = versions.length
       ? await this.ds.getRepository(Approval).find({ where: { quoteVersionId: In(versions.map((v) => v.id)) } })
       : [];
+    const responses = versions.length
+      ? await this.ds.getRepository(QuoteResponse).find({ where: { quoteId }, order: { createdAt: 'DESC' } })
+      : [];
     return {
       ...quote,
       versions: versions.map((v) => ({
         ...v, lines: lines.filter((l) => l.quoteVersionId === v.id), approvals: approvals.filter((a) => a.quoteVersionId === v.id),
+        responses: responses.filter((r) => r.quoteVersionId === v.id),
       })),
     };
   }
@@ -97,6 +102,45 @@ export class QuotesService {
     }
     await this.ds.query(`UPDATE inquiries SET status = 'quoted' WHERE id = $1 AND status IN ('new','assigned','awaiting_customer','qualified')`, [project.sourceInquiryId]);
     await this.audit.log({ actorId: user.id, action: 'quote.send', entityType: 'quote', entityId: quoteId });
+    return this.getQuote(user, quoteId);
+  }
+
+  /**
+   * The customer declines a sent quote or asks for changes to it. Bound to the exact (latest) version.
+   * Staff get a follow-up task + alert; "changes requested" quotes can then be revised and sent again.
+   */
+  async respond(user: AuthUser, quoteId: string, dto: QuoteResponseDto) {
+    const { quote, project } = await this.access.quote(user, quoteId);
+    if (quote.status !== 'sent') throw new BadRequestException('Only a quote waiting for your answer can be declined or changed');
+    const latest = await this.ds.getRepository(QuoteVersion).findOne({ where: { quoteId }, order: { versionNo: 'DESC' } });
+    if (!latest || latest.id !== dto.quoteVersionId) throw new BadRequestException('Only the latest quote version can be answered');
+    const declined = dto.decision === 'declined';
+    const note = dto.note?.trim() || null;
+    const label = declined ? 'declined' : 'asked for changes to';
+    const cfg = businessConfig();
+    await this.ds.transaction(async (m) => {
+      await m.getRepository(QuoteResponse).insert({ quoteId, quoteVersionId: latest.id, decision: dto.decision, note, respondedBy: user.id });
+      await m.getRepository(Quote).update(quoteId, { status: declined ? 'rejected' : 'changes_requested' });
+      await m.getRepository(StatusEvent).insert({
+        projectId: project.id, actorId: user.id,
+        note: `Customer ${label} quote ${quote.quoteNo} v${latest.versionNo}${note ? `: ${note}` : ''}`.slice(0, 5000),
+      });
+      await m.getRepository(Task).insert({
+        projectId: project.id, assigneeId: project.ownerId, createdBy: user.id, priority: 'high',
+        title: declined ? `Quote ${quote.quoteNo} declined – contact the customer` : `Revise quote ${quote.quoteNo} (changes requested)`,
+        dueAt: addBusinessHours(new Date(), cfg.followUpHours, cfg),
+      });
+      await this.audit.log({ actorId: user.id, action: `quote.${dto.decision}`, entityType: 'quote', entityId: quoteId, after: { versionId: latest.id, note } }, m);
+    });
+    for (const to of await this.access.staffEmails(project)) {
+      await this.email.queue({
+        kind: 'staff_alert', to, template: 'staff_alert', projectId: project.id,
+        data: {
+          title: `Customer ${label} quote ${quote.quoteNo}`,
+          body: [`Project: ${project.code} – ${project.name}`, `Version: ${latest.versionNo}`, note ? `Note: ${note}` : '', `Open: ${process.env.APP_URL ?? ''}/admin/projects/${project.id}`].filter(Boolean).join('\n'),
+        },
+      });
+    }
     return this.getQuote(user, quoteId);
   }
 

@@ -4,7 +4,7 @@ import { CurrentUser, StaffOnly } from '../../common/decorators/auth.decorators.
 import type { AuthUser } from '../../common/decorators/auth.decorators.js';
 import { ProjectsService } from './projects.service.js';
 import {
-  CompleteStageDto, CreateProjectDto, CreateProjectProductDto, ProjectQueryDto, UpdateProjectDto, UpdateProjectProductDto,
+  CompleteStageDto, CreateProjectDto, CreateProjectProductDto, ProjectQueryDto, StartProductStagesDto, UpdateProjectDto, UpdateProjectProductDto,
 } from './dto/project.dto.js';
 
 const ID = new ParseUUIDPipe();
@@ -35,6 +35,10 @@ export class ProjectsController {
   }
   @Patch('project-products/:id') updateProduct(@CurrentUser() u: AuthUser, @Param('id', ID) id: string, @Body() dto: UpdateProjectProductDto) {
     return this.projects.updateProduct(u, id, dto);
+  }
+  @StaffOnly() @Post('project-products/:id/stages')
+  startProductStages(@CurrentUser() u: AuthUser, @Param('id', ID) id: string, @Body() dto: StartProductStagesDto) {
+    return this.projects.startProductStages(u, id, dto.stageTemplateId);
   }
   @Delete('project-products/:id') removeProduct(@CurrentUser() u: AuthUser, @Param('id', ID) id: string) { return this.projects.removeProduct(u, id); }
 }

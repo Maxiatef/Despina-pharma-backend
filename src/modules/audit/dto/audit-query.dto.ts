@@ -1,11 +1,16 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { IsIn, IsOptional, IsUUID } from 'class-validator';
-import { AUDIT_ENTITIES } from '../../../common/enums.js';
-import type { AuditEntity } from '../../../common/enums.js';
+import { IsDateString, IsOptional, IsString, IsUUID, MaxLength } from 'class-validator';
 import { PageQueryDto } from '../../../common/utils.js';
 
 export class AuditQueryDto extends PageQueryDto {
-  @ApiPropertyOptional({ enum: AUDIT_ENTITIES }) @IsOptional() @IsIn(AUDIT_ENTITIES) entityType?: AuditEntity;
+  @ApiPropertyOptional({ description: 'Record type, e.g. task, quote, inquiry (see /audit-events/filters)' }) @IsOptional() @IsString() @MaxLength(40) entityType?: string;
   @ApiPropertyOptional() @IsOptional() @IsUUID() entityId?: string;
   @ApiPropertyOptional() @IsOptional() @IsUUID() actorId?: string;
+  @ApiPropertyOptional({ description: 'Exact action, e.g. task.complete; or a prefix ending with "." e.g. quote.' }) @IsOptional() @IsString() @MaxLength(100) action?: string;
+  @ApiPropertyOptional({ description: 'Everything that happened on this project' }) @IsOptional() @IsUUID() projectId?: string;
+  @ApiPropertyOptional({ description: 'Everything that happened on this lead' }) @IsOptional() @IsUUID() inquiryId?: string;
+  @ApiPropertyOptional({ description: 'Everything that happened for this company' }) @IsOptional() @IsUUID() companyId?: string;
+  @ApiPropertyOptional({ description: 'Only actions by website visitors (no account)' }) @IsOptional() @IsString() visitors?: string;
+  @ApiPropertyOptional() @IsOptional() @IsDateString() from?: string;
+  @ApiPropertyOptional() @IsOptional() @IsDateString() to?: string;
 }

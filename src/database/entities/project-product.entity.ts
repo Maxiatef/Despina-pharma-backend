@@ -4,6 +4,7 @@ import { BaseEntity } from './base.entity.js';
 import { Brief } from './brief.entity.js';
 import { CatalogItem } from './catalog-item.entity.js';
 import { Project } from './project.entity.js';
+import { ProjectStage } from './project-stage.entity.js';
 import { Sample } from './sample.entity.js';
 import { Service } from './service.entity.js';
 
@@ -39,6 +40,14 @@ export class ProjectProduct extends BaseEntity {
 
   @Column({ type: 'text', nullable: true })
   notes: string | null;
+
+  /** Current stage of this product line's own stage track (NULL until stages are started). */
+  @Column({ name: 'current_stage_id', type: 'uuid', nullable: true })
+  currentStageId: string | null;
+
+  @ManyToOne(() => ProjectStage, { onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'current_stage_id' })
+  currentStage?: Relation<ProjectStage> | null;
 
   @OneToMany(() => Brief, (x) => x.projectProduct)
   briefs?: Relation<Brief[]>;
