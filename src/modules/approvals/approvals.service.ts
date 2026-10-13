@@ -2,6 +2,7 @@ import { BadRequestException, ConflictException, Injectable, NotFoundException }
 import { DataSource } from 'typeorm';
 import { Approval, Brief, BriefVersion, Document, DocumentVersion, Quote, QuoteLine, QuoteVersion, Sample, SampleRevision } from '../../database/entities/index.js';
 import { AuditService } from '../audit/audit.service.js';
+import { EmailService } from '../email/email.service.js';
 import type { AuthUser } from '../../common/decorators/auth.decorators.js';
 import { sha256, stableJson } from '../../common/utils.js';
 import type { ApprovalTarget } from '../../common/enums.js';
@@ -14,7 +15,31 @@ export class ApprovalsService {
     private readonly ds: DataSource,
     private readonly access: ProjectAccessService,
     private readonly audit: AuditService,
+    private readonly email: EmailService,
   ) {}
+
+  /** What was approved, in words, for the e-mails. */
+  private async describe(approval: Approval) {
+    const one = async (sql: string, id: string | null) => (id ? ((await this.ds.query(sql, [id]))[0] ?? {}) : {});
+    switch (approval.targetType) {
+      case 'quote_version': {
+        const r = await one(`SELECT q.quote_no, v.version_no, v.total, v.currency FROM quote_versions v JOIN quotes q ON q.id = v.quote_id WHERE v.id = $1`, approval.quoteVersionId);
+        return { what: `quote ${r.quote_no} (version ${r.version_no})`, quote: r };
+      }
+      case 'sample_revision': {
+        const r = await one(`SELECT s.title, sr.revision_no FROM sample_revisions sr JOIN samples s ON s.id = sr.sample_id WHERE sr.id = $1`, approval.sampleRevisionId);
+        return { what: `sample "${r.title}" revision ${r.revision_no}` };
+      }
+      case 'document_version': {
+        const r = await one(`SELECT d.title, v.version_no FROM document_versions v JOIN documents d ON d.id = v.document_id WHERE v.id = $1`, approval.documentVersionId);
+        return { what: `document "${r.title}" version ${r.version_no}` };
+      }
+      default: {
+        const r = await one(`SELECT b.title, v.version_no FROM brief_versions v JOIN briefs b ON b.id = v.brief_id WHERE v.id = $1`, approval.briefVersionId);
+        return { what: `brief "${r.title}" version ${r.version_no}` };
+      }
+    }
+  }
   listApprovals(user: AuthUser, projectId: string) {
     return this.access.project(user, projectId).then(() =>
       this.ds.getRepository(Approval).find({ where: { projectId }, order: { approvedAt: 'DESC' } }),
@@ -52,6 +77,20 @@ export class ApprovalsService {
       await this.audit.log({ actorId: user.id, action: 'approval.create', entityType: 'approval', entityId: saved.id, after: saved }, m);
       return saved;
     });
+    if (!isStaff(user)) {
+      const { what, quote } = await this.describe(approval);
+      const data = {
+        projectId, projectCode: project.code, projectName: project.name, customerEmail: user.email, what,
+        confirmationText: approval.confirmationText,
+      };
+      if (quote) {
+        const q = { ...data, quoteNo: quote.quote_no, versionNo: quote.version_no, total: quote.total, currency: quote.currency, decision: 'accepted' };
+        await this.email.notifyStaff('quote.response', 'quote_response_staff', q, { people: await this.access.ownerEmails(project), projectId });
+        await this.email.toCustomer('quote_response_ack', user.email, 'quote_response_ack', q, { projectId });
+      } else {
+        await this.email.notifyStaff('approval.received', 'approval_staff', data, { people: await this.access.ownerEmails(project), projectId });
+      }
+    }
     return approval;
   }
 

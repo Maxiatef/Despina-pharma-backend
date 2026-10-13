@@ -1,6 +1,6 @@
 import { ApiProperty, ApiPropertyOptional, PartialType } from '@nestjs/swagger';
-import { Type } from 'class-transformer';
-import { IsDateString, IsIn, IsInt, IsOptional, IsString, IsUUID, Max, MaxLength, Min } from 'class-validator';
+import { Transform, Type } from 'class-transformer';
+import { IsDateString, IsIn, IsInt, IsNotEmpty, IsOptional, IsString, IsUUID, Max, MaxLength, Min } from 'class-validator';
 import { SAMPLE_STATUSES } from '../../../common/enums.js';
 import type { SampleStatus } from '../../../common/enums.js';
 export class CreateSampleDto {
@@ -12,7 +12,8 @@ export class UpdateSampleDto {
   @ApiPropertyOptional({ enum: SAMPLE_STATUSES }) @IsOptional() @IsIn(SAMPLE_STATUSES) status?: SampleStatus;
 }
 export class CreateSampleRevisionDto {
-  @ApiPropertyOptional() @IsOptional() @IsString() description?: string;
+  /** Required: a revision must say what changed (no blank revisions). */
+  @ApiProperty() @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value)) @IsString() @IsNotEmpty({ message: 'Describe what changed in this revision' }) @MaxLength(4000) description!: string;
   @ApiPropertyOptional() @IsOptional() @IsDateString() shippedAt?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(100) trackingNo?: string;
 }

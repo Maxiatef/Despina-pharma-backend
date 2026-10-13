@@ -57,18 +57,18 @@ export class UsersService {
       await this.memberships.insert({ userId: user.id, companyId: dto.companyId, memberRole: dto.memberRole ?? 'member' });
     }
     const token = await this.auth.createSignedToken(user.id, 'invite', 72);
-    await this.email.queue({ kind: 'invite', to: user.email, template: 'invite', data: { token } });
+    const job = await this.email.queue({ kind: 'invite', to: user.email, template: 'invite', data: { token, role: user.role } });
     await this.audit.log({ actorId, action: 'user.invite', entityType: 'user', entityId: user.id, after: { email: user.email, role: user.role } });
-    // Token returned so staff can share the link manually until Resend is connected.
-    return { user, inviteToken: token };
+    // The token is still returned so staff can copy the link if the e-mail does not arrive.
+    return { user, inviteToken: token, emailStatus: job.status, emailError: job.lastError };
   }
 
   async resendInvite(id: string, actorId: string) {
     const user = await this.get(id);
     const token = await this.auth.createSignedToken(user.id, 'invite', 72);
-    await this.email.queue({ kind: 'invite', to: user.email, template: 'invite', data: { token } });
+    const job = await this.email.queue({ kind: 'invite', to: user.email, template: 'invite', data: { token, role: user.role } });
     await this.audit.log({ actorId, action: 'user.invite_resent', entityType: 'user', entityId: id });
-    return { inviteToken: token };
+    return { inviteToken: token, emailStatus: job.status, emailError: job.lastError };
   }
 
   async update(id: string, dto: UpdateUserDto, actorId: string) {

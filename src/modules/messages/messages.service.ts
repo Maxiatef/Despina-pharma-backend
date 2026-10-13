@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { DataSource } from 'typeorm';
-import { Contact, Inquiry, Message, Project, User } from '../../database/entities/index.js';
+import { Contact, Inquiry, Message, Project, StatusEvent, User } from '../../database/entities/index.js';
 import type { AuthUser } from '../../common/decorators/auth.decorators.js';
 import { EmailService } from '../email/email.service.js';
 import { isStaff, ProjectAccessService, requireStaff } from '../projects/project-access.service.js';
@@ -22,15 +22,15 @@ export class MessagesService {
     const repo = this.ds.getRepository(Message);
     const msg = await repo.save(repo.create({ projectId, senderId: user.id, body }));
 
-    // Notify the other side.
-    const recipients = isStaff(user)
-      ? await this.access.customerEmails(project.companyId)
-      : await this.access.staffEmails(project);
-    for (const to of recipients) {
-      await this.email.queue({
-        kind: 'message_notice', to, template: 'message_notice', projectId,
-        data: { projectCode: project.code, senderName: user.email, body },
-      });
+    // Tell the other side (switchable in Settings → Emails).
+    const data = { projectId, projectCode: project.code, projectName: project.name, body };
+    if (isStaff(user)) {
+      for (const to of await this.access.customerEmails(project.companyId)) {
+        await this.email.toCustomer('reply', to, 'message_to_customer', { ...data, senderName: 'Your Despina Pharma team' }, { projectId });
+      }
+    } else {
+      await this.email.notifyStaff('customer.message', 'message_to_staff', { ...data, senderName: user.email },
+        { people: await this.access.ownerEmails(project), projectId });
     }
     return msg;
   }
@@ -40,18 +40,27 @@ export class MessagesService {
     return this.ds.getRepository(Message).find({ where: { inquiryId }, order: { createdAt: 'ASC' } });
   }
 
-  /** Staff reply to a lead (emailed to the contact). */
-  async postInquiryMessage(user: AuthUser, inquiryId: string, body: string) {
+  /**
+   * Staff reply to a lead, e-mailed to the contact. With askInfo the e-mail is a "more information needed"
+   * request and the lead moves to "Waiting for customer".
+   */
+  async postInquiryMessage(user: AuthUser, inquiryId: string, body: string, askInfo = false) {
     requireStaff(user);
     const inquiry = await this.ds.getRepository(Inquiry).findOneBy({ id: inquiryId });
     if (!inquiry) throw new NotFoundException('Inquiry not found');
     const contact = await this.ds.getRepository(Contact).findOneByOrFail({ id: inquiry.contactId });
     const repo = this.ds.getRepository(Message);
     const msg = await repo.save(repo.create({ inquiryId, senderId: user.id, body }));
-    await this.email.queue({
-      kind: 'message_notice', to: contact.email, template: 'message_notice', inquiryId,
-      data: { referenceNo: inquiry.referenceNo, senderName: 'Despina Pharma', body },
-    });
+    const data = { inquiryId, referenceNo: inquiry.referenceNo, contactName: [contact.firstName, contact.lastName].filter(Boolean).join(' '), senderName: 'Your Despina Pharma team', body };
+    if (askInfo) {
+      await this.email.toCustomer('info_request', contact.email, 'info_request', data, { inquiryId });
+      if (inquiry.status !== 'awaiting_customer') {
+        await this.ds.getRepository(Inquiry).update(inquiryId, { status: 'awaiting_customer' });
+        await this.ds.getRepository(StatusEvent).insert({ inquiryId, actorId: user.id, fromStatus: inquiry.status, toStatus: 'awaiting_customer', note: 'Asked the customer for more information' });
+      }
+    } else {
+      await this.email.toCustomer('reply', contact.email, 'message_to_customer', data, { inquiryId });
+    }
     return msg;
   }
 

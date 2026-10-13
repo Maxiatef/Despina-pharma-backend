@@ -97,8 +97,12 @@ export class QuotesService {
     const { quote, project } = await this.access.quote(user, quoteId);
     if (quote.status !== 'draft') throw new BadRequestException('Only draft quotes can be sent');
     await this.ds.getRepository(Quote).update(quoteId, { status: 'sent' });
+    const latest = await this.ds.getRepository(QuoteVersion).findOne({ where: { quoteId }, order: { versionNo: 'DESC' } });
     for (const to of await this.access.customerEmails(project.companyId)) {
-      await this.email.queue({ kind: 'quote_notice', to, template: 'quote_notice', projectId: project.id, data: { quoteNo: quote.quoteNo, projectId: project.id } });
+      await this.email.toCustomer('quote_ready', to, 'quote_ready', {
+        quoteNo: quote.quoteNo, projectId: project.id, projectName: project.name, versionNo: latest?.versionNo ?? 1,
+        total: latest?.total, currency: latest?.currency, validUntil: latest?.validUntil,
+      }, { projectId: project.id });
     }
     await this.ds.query(`UPDATE inquiries SET status = 'quoted' WHERE id = $1 AND status IN ('new','assigned','awaiting_customer','qualified')`, [project.sourceInquiryId]);
     await this.audit.log({ actorId: user.id, action: 'quote.send', entityType: 'quote', entityId: quoteId });
@@ -132,15 +136,12 @@ export class QuotesService {
       });
       await this.audit.log({ actorId: user.id, action: `quote.${dto.decision}`, entityType: 'quote', entityId: quoteId, after: { versionId: latest.id, note } }, m);
     });
-    for (const to of await this.access.staffEmails(project)) {
-      await this.email.queue({
-        kind: 'staff_alert', to, template: 'staff_alert', projectId: project.id,
-        data: {
-          title: `Customer ${label} quote ${quote.quoteNo}`,
-          body: [`Project: ${project.code} – ${project.name}`, `Version: ${latest.versionNo}`, note ? `Note: ${note}` : '', `Open: ${process.env.APP_URL ?? ''}/admin/projects/${project.id}`].filter(Boolean).join('\n'),
-        },
-      });
-    }
+    const data = {
+      quoteNo: quote.quoteNo, versionNo: latest.versionNo, total: latest.total, currency: latest.currency, decision: dto.decision, note,
+      projectId: project.id, projectCode: project.code, projectName: project.name, customerEmail: user.email,
+    };
+    await this.email.notifyStaff('quote.response', 'quote_response_staff', data, { people: await this.access.ownerEmails(project), projectId: project.id });
+    await this.email.toCustomer('quote_response_ack', user.email, 'quote_response_ack', data, { projectId: project.id });
     return this.getQuote(user, quoteId);
   }
 

@@ -2,11 +2,12 @@ import { BadRequestException, ForbiddenException, Injectable, NotFoundException,
 import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
 import { extname } from 'node:path';
 import { DataSource } from 'typeorm';
-import { Document, DocumentVersion } from '../../database/entities/index.js';
+import { Document, DocumentVersion, Project, StatusEvent } from '../../database/entities/index.js';
 import type { AuthUser } from '../../common/decorators/auth.decorators.js';
 import type { DocumentVisibility } from '../../common/enums.js';
 import { sha256 } from '../../common/utils.js';
 import { AuditService } from '../audit/audit.service.js';
+import { EmailService } from '../email/email.service.js';
 import { isStaff, ProjectAccessService } from '../projects/project-access.service.js';
 import { StorageService } from './storage/storage.service.js';
 import { ScanService } from './storage/scan.service.js';
@@ -54,7 +55,43 @@ export class DocumentsService {
     private readonly scanner: ScanService,
     private readonly access: ProjectAccessService,
     private readonly audit: AuditService,
+    private readonly email: EmailService,
   ) {}
+
+  /** Customers of the project get "new document available" when a customer-visible file version is ready. */
+  private async notifyDocumentReady(documentId: string, versionId: string) {
+    const doc = await this.ds.getRepository(Document).findOneBy({ id: documentId });
+    if (!doc?.projectId || doc.visibility !== 'customer') return;
+    const version = await this.ds.getRepository(DocumentVersion).findOneBy({ id: versionId });
+    const project = await this.ds.getRepository(Project).findOneBy({ id: doc.projectId });
+    if (!version || version.scanStatus !== 'clean' || !project) return;
+    for (const to of await this.access.customerEmails(project.companyId)) {
+      await this.email.toCustomer('document_ready', to, 'document_ready', {
+        projectId: project.id, projectName: project.name, title: doc.title, versionNo: version.versionNo, filename: version.originalFilename,
+      }, { projectId: project.id });
+    }
+  }
+
+  /** Staff ask the customer to review and approve the latest version of a document. */
+  async requestApproval(user: AuthUser, documentId: string, note?: string) {
+    const doc = await this.ds.getRepository(Document).findOneBy({ id: documentId });
+    if (!doc?.projectId) throw new NotFoundException('Document not found');
+    if (doc.visibility !== 'customer') throw new BadRequestException('Make the document visible to the customer first');
+    const version = await this.ds.getRepository(DocumentVersion).findOne({ where: { documentId }, order: { versionNo: 'DESC' } });
+    if (!version || version.scanStatus !== 'clean') throw new BadRequestException('The latest version must be released (clean) first');
+    const project = await this.ds.getRepository(Project).findOneByOrFail({ id: doc.projectId });
+    const to = await this.access.customerEmails(project.companyId);
+    if (!to.length) throw new BadRequestException('Nobody from this company has a workspace account yet – invite the customer first');
+    const jobs = [];
+    for (const address of to) {
+      jobs.push(await this.email.toCustomer('approval_request', address, 'approval_request', {
+        projectId: project.id, projectName: project.name, title: doc.title, versionNo: version.versionNo, note: note?.trim() || null,
+      }, { projectId: project.id }));
+    }
+    if (jobs.every((j) => j === null)) throw new BadRequestException('"Approval requested" e-mails are switched off in Settings → Emails');
+    await this.ds.getRepository(StatusEvent).insert({ projectId: project.id, actorId: user.id, note: `Approval requested for "${doc.title}" v${version.versionNo}` });
+    return { sentTo: to, versionNo: version.versionNo };
+  }
 
   private validateMeta(filename: string, mimeType: string, size: number) {
     const ext = extname(filename).toLowerCase();
@@ -134,6 +171,8 @@ export class DocumentsService {
         uploadedBy: user?.id ?? null,
       }),
     );
+    // Staff upload that is already clean (automatic scanning) → tell the customer now; manual mode tells them on release.
+    if (user && isStaff(user) && scanStatus === 'clean') await this.notifyDocumentReady(documentId, version.id);
     return { documentId, versionId: version.id, versionNo: version.versionNo, sha256: version.sha256, scanStatus };
   }
 
@@ -199,6 +238,7 @@ export class DocumentsService {
     if (!v) throw new NotFoundException('Version not found');
     await this.ds.getRepository(DocumentVersion).update(versionId, { scanStatus });
     if (scanStatus === 'infected') await this.storage.remove(v.storageKey);
+    if (scanStatus === 'clean' && v.scanStatus !== 'clean') await this.notifyDocumentReady(v.documentId, versionId);
     await this.audit.log({ actorId: user.id, action: `document.scan_${scanStatus}`, entityType: 'document', entityId: v.documentId, after: { versionId } });
     return { versionId, scanStatus };
   }

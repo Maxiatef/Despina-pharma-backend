@@ -13,7 +13,7 @@ export function validateEnv(env: Record<string, unknown>) {
   }
   const provider = env.EMAIL_PROVIDER ?? 'none';
   if (!['none', 'resend'].includes(String(provider))) errors.push('EMAIL_PROVIDER must be "none" or "resend"');
-  // TODO(resend): once implemented, require RESEND_API_KEY and EMAIL_FROM when EMAIL_PROVIDER=resend.
+  if (provider === 'resend' && !env.RESEND_API_KEY) errors.push('RESEND_API_KEY is required when EMAIL_PROVIDER=resend');
   if (env.NODE_ENV === 'production' && env.SCAN_MODE === 'skip') errors.push('SCAN_MODE=skip is not allowed in production');
 
   if (errors.length) throw new Error(`Invalid environment configuration:\n - ${errors.join('\n - ')}`);

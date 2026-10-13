@@ -42,4 +42,14 @@ export class Contact extends BaseEntity {
 
   @OneToMany(() => User, (x) => x.contact)
   users?: Relation<User[]>;
+
+  /** "bounced" / "complained" (from the Resend webhook): this address is not e-mailed again until staff clear it. */
+  @Column({ name: 'email_status', type: 'varchar', length: 20, nullable: true })
+  emailStatus: string | null;
+
+  @Column({ name: 'email_status_at', type: 'timestamptz', nullable: true })
+  emailStatusAt: Date | null;
+
+  @Column({ name: 'email_status_detail', type: 'text', nullable: true })
+  emailStatusDetail: string | null;
 }

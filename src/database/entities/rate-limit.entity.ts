@@ -1,5 +1,4 @@
 import { Column, Entity } from 'typeorm';
-import type { Relation } from 'typeorm';
 import { BaseEntity } from './base.entity.js';
 
 @Entity('rate_limits')

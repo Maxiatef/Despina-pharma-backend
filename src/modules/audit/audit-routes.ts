@@ -124,6 +124,11 @@ export const AUDIT_ROUTES: Record<string, AuditRoute> = {
   'PATCH /stage-templates/:id': { action: 'stage_template.update', entity: 'stage_template', table: 'stage_templates', id: 'id', say: 'updated the stage template {label}' },
 
   // ---------- e-mail ----------
+  'PATCH /settings/email': { action: 'settings.email', entity: 'settings', say: 'changed the e-mail settings' },
+  'POST /settings/email/test': { action: 'email.test', entity: 'email_job', say: 'sent a test e-mail to {b.to}' },
+  'POST /contacts/:id/clear-email-status': { action: 'contact.clear_email_status', entity: 'contact', table: 'contacts', id: 'id', say: 'cleared the bounced/spam status of {label}' },
+  'POST /documents/:id/request-approval': { action: 'document.request_approval', entity: 'document', table: 'documents', id: 'id', say: 'asked the customer to approve "{label}"' },
+  'POST /sample-revisions/:id/request-feedback': { action: 'sample.request_feedback', entity: 'sample_revision', table: 'sample_revisions', id: 'id', say: 'asked the customer for feedback on sample revision {label}' },
   'POST /email-jobs/:id/retry': { action: 'email.retry', entity: 'email_job', table: 'email_jobs', id: 'id', say: 'retried the e-mail "{label}"' },
 };
 

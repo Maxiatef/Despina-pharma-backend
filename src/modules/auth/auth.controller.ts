@@ -98,6 +98,6 @@ export class AuthController {
   @Post('password/change')
   @HttpCode(200)
   change(@CurrentUser() user: AuthUser, @Body() dto: ChangePasswordDto) {
-    return this.auth.changePassword(user.id, dto.currentPassword, dto.newPassword);
+    return this.auth.changePassword(user.id, dto.currentPassword, dto.newPassword, user.sessionId);
   }
 }

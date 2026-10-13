@@ -1,7 +1,6 @@
 import { Column, Entity, JoinColumn, ManyToOne } from 'typeorm';
 import type { Relation } from 'typeorm';
 import { BaseEntity } from './base.entity.js';
-import { EMAIL_EVENT_TYPES } from '../../common/enums.js';
 import type { EmailEventType } from '../../common/enums.js';
 import { EmailJob } from './email-job.entity.js';
 
@@ -15,7 +14,7 @@ export class EmailEvent extends BaseEntity {
   @JoinColumn({ name: 'email_job_id' })
   emailJob?: Relation<EmailJob>;
 
-  @Column({ type: 'enum', enum: EMAIL_EVENT_TYPES, enumName: 'email_event_type' })
+  @Column({ type: 'varchar', length: 30 })
   event: EmailEventType;
 
   @Column({ type: 'jsonb', default: () => "'{}'" })

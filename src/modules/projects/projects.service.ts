@@ -6,6 +6,7 @@ import {
 } from '../../database/entities/index.js';
 import type { StageDefinition } from '../../database/entities/index.js';
 import { AuditService } from '../audit/audit.service.js';
+import { EmailService } from '../email/email.service.js';
 import type { AuthUser } from '../../common/decorators/auth.decorators.js';
 import { paged } from '../../common/utils.js';
 import { isStaff, ProjectAccessService } from './project-access.service.js';
@@ -35,6 +36,7 @@ export class ProjectsService {
     private readonly ds: DataSource,
     private readonly access: ProjectAccessService,
     private readonly audit: AuditService,
+    private readonly email: EmailService,
   ) {}
 
   // ---------- projects ----------
@@ -237,7 +239,7 @@ export class ProjectsService {
    */
   async completeStage(user: AuthUser, projectId: string, stageId: string, note?: string) {
     const project = await this.access.project(user, projectId);
-    await this.ds.transaction(async (m) => {
+    const update = await this.ds.transaction(async (m) => {
       const target = await m.getRepository(ProjectStage).findOneBy({ id: stageId, projectId });
       if (!target) throw new NotFoundException('Stage not found');
       const product = target.projectProductId ? await m.getRepository(ProjectProduct).findOneByOrFail({ id: target.projectProductId }) : null;
@@ -265,7 +267,13 @@ export class ProjectsService {
       const where = product ? ` for "${product.name}"` : '';
       await m.getRepository(StatusEvent).insert({ projectId, actorId: user.id, note: `Stage "${stage.name}"${where} completed${note ? `: ${note}` : ''}` });
       await this.audit.log({ actorId: user.id, action: 'project.stage_complete', entityType: 'project', entityId: projectId, after: { stageId, note } }, m);
+      return { completedStage: stage.name, nextStage: next?.name ?? null, productName: product?.name ?? null };
     });
+    // Tell the customer (Settings → Emails → "Project stage update"). Stage names only – no invented dates.
+    for (const to of await this.access.customerEmails(project.companyId)) {
+      await this.email.toCustomer('stage_update', to, 'stage_update',
+        { ...update, projectId, projectCode: project.code, projectName: project.name }, { projectId });
+    }
     return this.get(user, projectId);
   }
 

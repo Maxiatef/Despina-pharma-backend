@@ -6,6 +6,7 @@ import { validateEnv } from './config/env.validation.js';
 
 // Infrastructure (global)
 import { AuditModule } from './modules/audit/audit.module.js';
+import { SettingsModule } from './modules/settings/settings.module.js';
 import { RateLimitModule } from './modules/rate-limit/rate-limit.module.js';
 import { EmailModule } from './modules/email/email.module.js';
 import { AuthModule } from './modules/auth/auth.module.js';
@@ -53,6 +54,7 @@ import { CronModule } from './modules/cron/cron.module.js';
     }),
 
     AuditModule,
+    SettingsModule,
     RateLimitModule,
     EmailModule,
     AuthModule,

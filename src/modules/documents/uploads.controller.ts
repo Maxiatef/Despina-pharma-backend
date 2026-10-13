@@ -1,14 +1,23 @@
 import {
-  BadRequestException, Body, Controller, Get, Headers, HttpCode, Param, ParseUUIDPipe, Patch, Post, Put, Query, Req, Res,
+  BadRequestException,
+  Body,
+  Controller,
+  Headers,
+  HttpCode,
+  Param,
+  ParseUUIDPipe,
+  Post,
+  Put,
+  Req,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiBody, ApiHeader, ApiTags } from '@nestjs/swagger';
-import type { Request, Response } from 'express';
-import { CurrentUser, Public, StaffOnly } from '../../common/decorators/auth.decorators.js';
+import { ApiBody, ApiHeader, ApiTags } from '@nestjs/swagger';
+import type { Request } from 'express';
+import { Public } from '../../common/decorators/auth.decorators.js';
 import type { AuthUser } from '../../common/decorators/auth.decorators.js';
 import { clientIp } from '../../common/utils.js';
 import { RateLimitService } from '../rate-limit/rate-limit.service.js';
 import { DocumentsService } from './documents.service.js';
-import { InitiateUploadDto, CompleteUploadDto, UpdateDocumentDto, ScanDto, SignedQueryDto } from './dto/document.dto.js';
+import { InitiateUploadDto, CompleteUploadDto } from './dto/document.dto.js';
 
 @ApiTags('uploads')
 @Controller('uploads')
@@ -40,7 +49,13 @@ export class UploadsController {
     @Req() req: Request & { user?: AuthUser },
   ) {
     if (!filename) throw new BadRequestException('X-Filename header is required');
-    return this.uploads.putContent(id, token, decodeURIComponent(filename), (contentType ?? '').split(';')[0].trim(), req.body as Buffer, req.user);
+    let name: string;
+    try {
+      name = decodeURIComponent(filename);
+    } catch {
+      throw new BadRequestException('X-Filename must be URI-encoded');
+    }
+    return this.uploads.putContent(id, token, name, (contentType ?? '').split(';')[0].trim(), req.body as Buffer, req.user);
   }
 
   /** POST /api/uploads/complete */

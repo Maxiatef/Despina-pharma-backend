@@ -36,6 +36,7 @@ import { Approval } from './approval.entity.js';
 import { Message } from './message.entity.js';
 import { AuditEvent } from './audit-event.entity.js';
 import { QuoteResponse } from './quote-response.entity.js';
+import { AppSetting } from './app-setting.entity.js';
 
 export * from './base.entity.js';
 export * from './company.entity.js';
@@ -76,6 +77,7 @@ export * from './approval.entity.js';
 export * from './message.entity.js';
 export * from './audit-event.entity.js';
 export * from './quote-response.entity.js';
+export * from './app-setting.entity.js';
 
 /** Every entity, registered with TypeORM. */
 export const ALL_ENTITIES = [
@@ -117,4 +119,5 @@ export const ALL_ENTITIES = [
   Message,
   AuditEvent,
   QuoteResponse,
+  AppSetting,
 ];

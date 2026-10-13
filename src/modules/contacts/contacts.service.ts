@@ -48,6 +48,13 @@ export class ContactsService {
     return contact;
   }
 
+  async clearEmailStatus(id: string) {
+    const contact = await this.contacts.findOneBy({ id });
+    if (!contact) throw new NotFoundException('Contact not found');
+    await this.contacts.update(id, { emailStatus: null, emailStatusAt: null, emailStatusDetail: null });
+    return this.contacts.findOneByOrFail({ id });
+  }
+
   async update(id: string, dto: UpdateContactDto, actorId: string) {
     const before = await this.contacts.findOneBy({ id });
     if (!before) throw new NotFoundException('Contact not found');

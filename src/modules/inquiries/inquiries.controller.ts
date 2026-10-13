@@ -8,7 +8,7 @@ import { clientIp } from '../../common/utils.js';
 import { RateLimitService } from '../rate-limit/rate-limit.service.js';
 import { ProjectsService } from '../projects/projects.service.js';
 import { MessagesService } from '../messages/messages.service.js';
-import { CreateMessageDto } from '../messages/dto/messages.dto.js';
+import { InquiryReplyDto } from '../messages/dto/messages.dto.js';
 import { InquiriesService } from './inquiries.service.js';
 import {
   AssignDto, ConvertToProjectDto, InquiryQueryDto, NoteDto, SubmitFixedInquiryDto, SubmitInquiryDto, UpdateStatusDto,
@@ -97,8 +97,8 @@ export class InquiriesController {
 
   @Get(':id/messages') messages(@Param('id', ParseUUIDPipe) id: string) { return this.messagesService.listInquiryMessages(id); }
 
-  @Post(':id/messages') reply(@Param('id', ParseUUIDPipe) id: string, @Body() dto: CreateMessageDto, @CurrentUser() u: AuthUser) {
-    return this.messagesService.postInquiryMessage(u, id, dto.body);
+  @Post(':id/messages') reply(@Param('id', ParseUUIDPipe) id: string, @Body() dto: InquiryReplyDto, @CurrentUser() u: AuthUser) {
+    return this.messagesService.postInquiryMessage(u, id, dto.body, dto.askInfo ?? false);
   }
 
   /** Convert a lead into a project without re-entering data. */

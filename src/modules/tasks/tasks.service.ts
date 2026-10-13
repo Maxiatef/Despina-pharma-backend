@@ -33,20 +33,16 @@ export class TasksService implements OnModuleInit, OnModuleDestroy {
     return user;
   }
 
-  /** Tell the new owner (queued until e-mail sending is connected). Not sent when you assign a task to yourself. */
+  /** Tell the new owner (switch: Settings → Emails → "Task assigned to you"). Not sent when you assign a task to yourself. */
   private async notifyAssignee(task: Task, user: User, actorId: string) {
     if (user.id === actorId) return;
     const [ref] = await this.ds.query(
       `SELECT i.reference_no, p.code FROM tasks t LEFT JOIN inquiries i ON i.id = t.inquiry_id LEFT JOIN projects p ON p.id = t.project_id WHERE t.id = $1`, [task.id]);
-    const where = task.inquiryId ? `/admin/inquiries/${task.inquiryId}` : task.projectId ? `/admin/projects/${task.projectId}` : '/admin/tasks';
-    await this.email.queue({
-      kind: 'staff_alert', to: user.email, template: 'staff_alert', inquiryId: task.inquiryId ?? undefined, projectId: task.projectId ?? undefined,
-      data: {
-        title: `Task assigned to you: ${task.title}`,
-        body: [ref?.reference_no || ref?.code ? `For: ${ref.reference_no ?? ref.code}` : '', task.dueAt ? `Due: ${new Date(task.dueAt).toUTCString()}` : '',
-          `Open: ${process.env.APP_URL ?? ''}${where}`].filter(Boolean).join('\n'),
-      },
-    });
+    const path = task.inquiryId ? `/admin/inquiries/${task.inquiryId}/` : task.projectId ? `/admin/projects/${task.projectId}/` : '/admin/tasks/';
+    const [actor] = await this.ds.query(`SELECT email FROM users WHERE id = $1`, [actorId]);
+    await this.email.notifyStaff('task.assigned', 'task_assigned', {
+      title: task.title, dueAt: task.dueAt, priority: task.priority, forRef: ref?.reference_no ?? ref?.code, path, assignedBy: actor?.email,
+    }, { people: [user.email], inquiryId: task.inquiryId, projectId: task.projectId });
   }
 
   /** Assign, reassign or unassign (userId null). */
@@ -95,10 +91,7 @@ export class TasksService implements OnModuleInit, OnModuleDestroy {
       WHERE t.completed_at IS NULL AND t.due_at < now() AND u.is_active
       GROUP BY u.email`);
     for (const r of rows) {
-      await this.email.queue({
-        kind: 'staff_alert', to: r.email, template: 'staff_alert',
-        data: { title: `${r.titles.length} overdue follow-up task(s)`, body: r.titles.map((t) => `• ${t}`).join('\n') },
-      });
+      await this.email.notifyStaff('task.overdue', 'overdue_digest', { tasks: r.titles }, { people: [r.email] });
     }
     return { sent: rows.length };
   }

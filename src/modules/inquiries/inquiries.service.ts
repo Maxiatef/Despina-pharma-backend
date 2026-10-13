@@ -11,6 +11,7 @@ import { STAFF_ROLES } from '../../common/enums.js';
 import type { FormType, InquiryStatus, InquiryType } from '../../common/enums.js';
 import { csvCell, paged } from '../../common/utils.js';
 import { addBusinessHours, businessConfig } from '../../common/business-hours.js';
+import type { StaffNotificationKey } from '../email/email-settings.js';
 import { verifyUploadToken } from '../documents/upload-token.js';
 import { maxFiles } from '../documents/documents.service.js';
 import { InquiryQueryDto, SubmitInquiryDto } from './dto/inquiry.dto.js';
@@ -23,6 +24,12 @@ export const INQUIRY_TYPE_LABELS: Record<InquiryType, string> = {
   general: 'General question', new_product: 'New product development', private_label: 'Private label / stock formula',
   sample_request: 'Sample request', quotation: 'Quotation / pricing', packaging_filling: 'Packaging & filling',
   existing_project: 'Existing project', partnership: 'Partnership / supplier', other: 'Other',
+};
+
+/** Which staff notification (Admin → Settings → Emails) each form uses. */
+const NOTIFY_KEY: Record<FormType, StaffNotificationKey> = {
+  contact: 'inquiry.contact', new_product: 'inquiry.new_product', service: 'inquiry.new_product', new_customer: 'inquiry.new_customer',
+  sample_request: 'inquiry.sample_request', sample_feedback: 'inquiry.sample_feedback',
 };
 
 export interface RequestMeta {
@@ -97,7 +104,14 @@ export class InquiriesService {
         await m.getRepository(StatusEvent).insert({ inquiryId: inquiry.id, fromStatus: null, toStatus: 'new', note: 'Submitted from website' });
         const followUp = await this.createFollowUp(m, inquiry, dto);
 
-        // Two separate emails: one to the owner/department, one acknowledgement to the customer.
+        // Two separate e-mails: a notice to the team (recipients per form type in Settings → Emails) and a
+        // confirmation to the visitor. Both are switchable in Settings; they are sent right after this request.
+        const labels = (dto.payload?.labels ?? {}) as Record<string, string>;
+        const fields = (dto.payload?.fields ?? {}) as Record<string, string | string[]>;
+        const answers = Object.entries(fields)
+          .filter(([k]) => !['name', 'email', 'company', 'message', 'phone'].includes(k))
+          .slice(0, 20)
+          .map(([k, v]) => [labels[k] ?? k, (Array.isArray(v) ? v.join(', ') : String(v)).slice(0, 300)]);
         const data = {
           inquiryId: inquiry.id,
           referenceNo,
@@ -109,14 +123,19 @@ export class InquiriesService {
           companyName: company?.name,
           sourcePage: dto.sourcePage,
           message: dto.message,
+          phone: contact.phone,
           items: items.map((i) => i.label),
+          answers,
+          assignedTo: followUp.assigneeEmail,
+          receivedAt: inquiry.createdAt,
         };
-        for (const to of this.ownerRecipients(dto.formType)) {
-          await this.email.queue({ kind: 'owner_notice', to, template: 'owner_notice', data, inquiryId: inquiry.id }, m);
-        }
-        await this.email.queue({ kind: 'customer_ack', to: contact.email, template: 'customer_ack', data, inquiryId: inquiry.id }, m);
+        const notifyKey = NOTIFY_KEY[dto.formType];
+        await this.email.notifyStaff(notifyKey, 'owner_notice', data, { inquiryId: inquiry.id, manager: m });
+        const ack = await this.email.toCustomer('inquiry_ack', contact.email, 'customer_ack', data, { inquiryId: inquiry.id, manager: m });
 
-        return { id: inquiry.id, referenceNo, status: inquiry.status, duplicate: false };
+        // Tells the website whether a confirmation e-mail is really on its way.
+        const confirmationEmail = !!ack && ack.status === 'queued' && (await this.email.customerEmailOn('inquiry_ack'));
+        return { id: inquiry.id, referenceNo, status: inquiry.status, duplicate: false, confirmationEmail };
       });
     } catch (err) {
       // Two identical requests at the same moment: the unique idempotency key wins; return the stored one.
@@ -145,7 +164,7 @@ export class InquiriesService {
     }
     const topic = [FORM_LABELS[dto.formType], dto.inquiryType && INQUIRY_TYPE_LABELS[dto.inquiryType]].filter(Boolean).join(' – ');
     const cfg = businessConfig();
-    return m.getRepository(Task).save(
+    const task = await m.getRepository(Task).save(
       m.getRepository(Task).create({
         inquiryId: inquiry.id,
         assigneeId: assignee?.id ?? null,
@@ -154,13 +173,7 @@ export class InquiriesService {
         dueAt: addBusinessHours(new Date(), cfg.followUpHours, cfg),
       }),
     );
-  }
-
-  /** OWNER_NOTIFICATION_EMAIL, optionally overridden per form type, e.g. NOTIFY_SAMPLE_REQUEST=lab@... */
-  private ownerRecipients(formType: FormType): string[] {
-    const specific = process.env[`NOTIFY_${formType.toUpperCase()}`];
-    const list = (specific || this.email.ownerEmail || '').split(',').map((s) => s.trim()).filter(Boolean);
-    return [...new Set(list)];
+    return Object.assign(task, { assigneeEmail: assignee?.email ?? null });
   }
 
   private async upsertCompany(m: EntityManager, input: NonNullable<SubmitInquiryDto['company']>) {
@@ -418,10 +431,17 @@ export class InquiriesService {
       }
       await this.audit.log({ actorId, action: 'inquiry.assign', entityType: 'inquiry', entityId: id, after: { userId } }, m);
     });
-    await this.email.queue({
-      kind: 'staff_alert', to: user.email, template: 'staff_alert', inquiryId: id,
-      data: { title: `Lead ${inquiry.referenceNo} assigned to you`, body: `Open: ${process.env.APP_URL ?? ''}/admin/inquiries/${id}` },
-    });
+    if (userId !== actorId) {
+      const [info] = await this.ds.query(
+        `SELECT c.first_name, c.last_name, co.name AS company, u.email AS actor,
+                (SELECT count(*)::int FROM tasks t WHERE t.inquiry_id = $1 AND t.assignee_id = $2 AND t.completed_at IS NULL) AS tasks
+         FROM inquiries i JOIN contacts c ON c.id = i.contact_id LEFT JOIN companies co ON co.id = i.company_id
+         LEFT JOIN users u ON u.id = $3 WHERE i.id = $1`, [id, userId, actorId]);
+      await this.email.notifyStaff('lead.assigned', 'lead_assigned', {
+        inquiryId: id, referenceNo: inquiry.referenceNo, contactName: [info?.first_name, info?.last_name].filter(Boolean).join(' '),
+        companyName: info?.company, status: 'assigned', assignedBy: info?.actor, taskCount: info?.tasks ?? 0,
+      }, { people: [user.email], inquiryId: id });
+    }
     return this.assignments.findOneByOrFail({ inquiryId: id, unassignedAt: IsNull() });
   }
 

@@ -19,6 +19,11 @@ export class CompleteUploadDto {
   @ApiProperty() @IsString() token: string;
 }
 
+/** Optional message shown in the "please review and approve" e-mail. */
+export class RequestApprovalDto {
+  @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(2000) note?: string;
+}
+
 export class UpdateDocumentDto {
   @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(300) title?: string;
   @ApiPropertyOptional({ enum: DOCUMENT_VISIBILITIES }) @IsOptional() @IsIn(DOCUMENT_VISIBILITIES) visibility?: DocumentVisibility;

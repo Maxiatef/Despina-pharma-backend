@@ -349,8 +349,8 @@ async function run() {
   check('dashboard overview', dash.status === 200 && dash.body.leads && dash.body.recentLeads.length > 0, dash.body);
   check('leads per week', (await call('GET', '/dashboard/leads-per-week?weeks=8', { token: admin })).status === 200);
   const jobs = await call('GET', `/email-jobs?inquiryId=${r1.body.id}`, { token: admin });
-  check('emails queued (owner notice + customer ack), not sent – Resend pending',
-    jobs.status === 200 && jobs.body.items.some((j) => j.kind === 'customer_ack' && j.status === 'queued'), jobs.body.items?.map((j) => `${j.kind}:${j.status}`));
+  check('emails created (owner notice + customer ack) and skipped – test address, nothing really sent',
+    jobs.status === 200 && jobs.body.items.some((j) => j.kind === 'customer_ack' && j.status === 'skipped' && j.lastError), jobs.body.items?.map((j) => `${j.kind}:${j.status}`));
   const audit = await call('GET', `/audit-events?projectId=${project.id}`, { token: admin });
   check('audit trail for the project', audit.status === 200 && audit.body.total >= 3);
   const tpl = await call('GET', '/stage-templates', { token: admin });

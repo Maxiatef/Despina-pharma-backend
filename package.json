@@ -31,7 +31,8 @@
     "db:status": "node scripts/db-status.mjs",
     "db:free-connections": "node scripts/db-free-connections.mjs",
     "smoke:features": "node scripts/smoke-features.mjs",
-    "smoke:audit": "node scripts/smoke-audit.mjs"
+    "smoke:audit": "node scripts/smoke-audit.mjs",
+    "smoke:email": "node scripts/smoke-email.mjs"
   },
   "dependencies": {
     "@nestjs/common": "^12.0.1",
@@ -50,6 +51,7 @@
     "otplib": "^13.5.0",
     "pg": "^8.23.1",
     "reflect-metadata": "^0.2.2",
+    "resend": "^6.27.0",
     "rxjs": "^7.8.1",
     "typeorm": "^1.1.1"
   },

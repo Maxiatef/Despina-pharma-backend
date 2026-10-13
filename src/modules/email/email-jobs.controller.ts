@@ -18,6 +18,13 @@ export class EmailJobsController {
     return paged(items, total, q);
   }
 
+  /** One e-mail with its HTML (for the preview in the e-mail log). */
+  @Get(':id')
+  async one(@Param('id', ParseUUIDPipe) id: string) {
+    const [job, events] = await Promise.all([this.email.getJob(id), this.email.eventsFor(id)]);
+    return { ...job, events };
+  }
+
   @Get(':id/events')
   events(@Param('id', ParseUUIDPipe) id: string) {
     return this.email.eventsFor(id);

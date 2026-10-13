@@ -1,14 +1,21 @@
 import {
-  BadRequestException, Body, Controller, Get, Headers, HttpCode, Param, ParseUUIDPipe, Patch, Post, Put, Query, Req, Res,
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  Param,
+  ParseUUIDPipe,
+  Patch,
+  Post,
+  Query,
+  Res,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiBody, ApiHeader, ApiTags } from '@nestjs/swagger';
-import type { Request, Response } from 'express';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import type { Response } from 'express';
 import { CurrentUser, Public, StaffOnly } from '../../common/decorators/auth.decorators.js';
 import type { AuthUser } from '../../common/decorators/auth.decorators.js';
-import { clientIp } from '../../common/utils.js';
-import { RateLimitService } from '../rate-limit/rate-limit.service.js';
 import { DocumentsService } from './documents.service.js';
-import { InitiateUploadDto, CompleteUploadDto, UpdateDocumentDto, ScanDto, SignedQueryDto } from './dto/document.dto.js';
+import { UpdateDocumentDto, ScanDto, SignedQueryDto, RequestApprovalDto } from './dto/document.dto.js';
 
 @ApiTags('documents')
 @ApiBearerAuth()
@@ -28,6 +35,11 @@ export class DocumentsController {
 
   @StaffOnly() @Patch('documents/:id') update(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdateDocumentDto) {
     return this.uploads.update(u, id, dto);
+  }
+
+  @StaffOnly() @Post('documents/:id/request-approval') @HttpCode(200)
+  requestApproval(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: RequestApprovalDto) {
+    return this.uploads.requestApproval(u, id, dto.note);
   }
 
   @StaffOnly() @Post('document-versions/:id/scan') @HttpCode(200)

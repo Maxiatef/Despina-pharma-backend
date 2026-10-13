@@ -25,13 +25,14 @@ export type DocumentVisibility = (typeof DOCUMENT_VISIBILITIES)[number];
 export const SCAN_STATUSES = ['pending', 'clean', 'infected', 'failed'] as const;
 export type ScanStatus = (typeof SCAN_STATUSES)[number];
 
-export const EMAIL_KINDS = ['owner_notice', 'customer_ack', 'staff_alert', 'message_notice', 'quote_notice', 'invite', 'password_reset'] as const;
+/** Who an e-mail is for: staff notifications, customer e-mails, account e-mails (stored as text). */
+export const EMAIL_KINDS = ['owner_notice', 'customer_ack', 'staff_alert', 'message_notice', 'quote_notice', 'invite', 'password_reset', 'staff_notice', 'customer_notice', 'test'] as const;
 export type EmailKind = (typeof EMAIL_KINDS)[number];
 
-export const EMAIL_JOB_STATUSES = ['queued', 'sending', 'sent', 'failed'] as const;
+export const EMAIL_JOB_STATUSES = ['queued', 'sending', 'sent', 'failed', 'skipped'] as const;
 export type EmailJobStatus = (typeof EMAIL_JOB_STATUSES)[number];
 
-export const EMAIL_EVENT_TYPES = ['delivered', 'bounced', 'complaint', 'failed', 'opened', 'unsubscribed'] as const;
+export const EMAIL_EVENT_TYPES = ['sent', 'delivered', 'delivery_delayed', 'bounced', 'complaint', 'failed', 'opened', 'clicked', 'unsubscribed'] as const;
 export type EmailEventType = (typeof EMAIL_EVENT_TYPES)[number];
 
 export const CONSENT_TYPES = ['privacy', 'marketing', 'terms'] as const;

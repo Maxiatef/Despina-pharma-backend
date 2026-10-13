@@ -19,7 +19,7 @@ const API = process.env.SMOKE_API ?? `http://localhost:${process.env.PORT ?? 300
 const DOMAIN = 'smoke-test.invalid';
 const RUN = Date.now().toString(36);
 const args = new Set(process.argv.slice(2));
-const CRON_SECRET = process.env.CRON_SECRET ?? readEnvFile('.env.vercel').CRON_SECRET;
+const CRON_SECRET = process.env.CRON_SECRET ?? readEnvFile('.env').CRON_SECRET; // must match the running server
 
 function readEnvFile(path) {
   try {
@@ -139,7 +139,7 @@ async function run() {
   check('missing category â†’ 404', (await call('GET', '/public/catalog/categories/nope-nope')).status === 404);
   check('public FAQs list', (await call('GET', '/public/faqs')).status === 200);
   check('redirect resolve (none) does not crash', [200, 404].includes((await call('GET', '/public/redirects/resolve?path=/no-such-old-url/')).status));
-  check('webhook email-events disabled until signature check', (await call('POST', '/webhooks/email-events', { body: { type: 'email.delivered', data: { email_id: 'x' } } })).body?.ignored === true);
+  check('webhook email-events refuses unsigned calls (401)', (await call('POST', '/webhooks/email-events', { body: { type: 'email.delivered', data: { email_id: 'x' } } })).status === 401);
   check('webhook email-inbound disabled until signature check', (await call('POST', '/webhooks/email-inbound', { body: { from: 'a@b.c', subject: 'DP-INQ-2026-000001', text: 'hi' } })).body?.ignored === true);
   check('cron without secret â†’ 401', (await call('GET', '/cron/run')).status === 401);
   check('cron with wrong secret â†’ 401', (await call('GET', '/cron/run', { headers: { Authorization: 'Bearer wrong' } })).status === 401);

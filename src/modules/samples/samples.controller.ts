@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, ParseUUIDPipe, Patch, Post } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Param, ParseUUIDPipe, Patch, Post } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { CurrentUser, StaffOnly } from '../../common/decorators/auth.decorators.js';
 import type { AuthUser } from '../../common/decorators/auth.decorators.js';
@@ -24,6 +24,8 @@ export class SamplesController {
   @StaffOnly() @Post('samples/:id/revisions') addRevision(@CurrentUser() u: AuthUser, @Param('id', ID) id: string, @Body() dto: CreateSampleRevisionDto) {
     return this.svc.addRevision(u, id, dto);
   }
+  @StaffOnly() @Post('sample-revisions/:id/request-feedback') @HttpCode(200)
+  requestFeedback(@CurrentUser() u: AuthUser, @Param('id', ID) id: string) { return this.svc.requestFeedback(u, id); }
   @StaffOnly() @Patch('sample-revisions/:id') updateRevision(@CurrentUser() u: AuthUser, @Param('id', ID) id: string, @Body() dto: UpdateSampleRevisionDto) {
     return this.svc.updateRevision(u, id, dto);
   }

@@ -71,6 +71,16 @@ export class ProjectAccessService {
     return rows.map((r) => r.email);
   }
 
+  /** Project owner + staff assigned to the project (no fallback – Settings → Emails adds the list recipients). */
+  async ownerEmails(project: Project): Promise<string[]> {
+    const rows: { email: string }[] = await this.ds.query(
+      `SELECT DISTINCT u.email FROM users u
+       WHERE u.is_active AND u.role <> 'customer' AND (u.id = $1 OR u.id IN (SELECT user_id FROM assignments WHERE project_id = $2 AND unassigned_at IS NULL))`,
+      [project.ownerId, project.id],
+    );
+    return rows.map((r) => r.email);
+  }
+
   /** Project owner + assigned staff; falls back to the owner notification address. */
   async staffEmails(project: Project): Promise<string[]> {
     const rows: { email: string }[] = await this.ds.query(

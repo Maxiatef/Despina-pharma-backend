@@ -1,11 +1,16 @@
 import { ApiProperty, ApiPropertyOptional, PartialType } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
-  ArrayMinSize, IsArray, IsBoolean, IsDateString, IsIn, IsInt, IsNumber, IsObject, IsOptional, IsString,
-  IsUUID, Length, Max, MaxLength, Min, MinLength, ValidateNested,
+  IsIn,
+  IsInt,
+  IsOptional,
+  IsString,
+  IsUUID,
+  MaxLength,
+  Min,
 } from 'class-validator';
-import { APPROVAL_TARGETS, PROJECT_STATUSES, QUOTE_STATUSES, SAMPLE_STATUSES, USER_ROLES } from '../../../common/enums.js';
-import type { ApprovalTarget, ProjectStatus, QuoteStatus, SampleStatus, UserRole } from '../../../common/enums.js';
+import { PROJECT_STATUSES } from '../../../common/enums.js';
+import type { ProjectStatus } from '../../../common/enums.js';
 import { PageQueryDto } from '../../../common/utils.js';
 
 // ---------- projects ----------

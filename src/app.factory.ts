@@ -37,7 +37,7 @@ export async function createApp(): Promise<NestExpressApplication> {
   );
   // abortOnError: false → a startup error (e.g. database unreachable) is thrown instead of
   // killing the process, so the Vercel handler can log it and answer with the reason.
-  const app = await NestFactory.create<NestExpressApplication>(AppModule, { abortOnError: false });
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, { abortOnError: false, rawBody: true });
   app.set('trust proxy', 1);
   app.use(helmet());
   app.use(cookieParser());

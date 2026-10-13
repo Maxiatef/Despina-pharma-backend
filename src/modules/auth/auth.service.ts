@@ -13,6 +13,9 @@ import { AuditService } from '../audit/audit.service.js';
 
 type TokenPurpose = 'invite' | 'reset';
 
+/** Same cost as real hashes; compared when the e-mail is unknown so login timing does not reveal accounts. */
+const DUMMY_HASH = '$2b$12$IO.ECWMaP2HQFJ2Xh350FOicM7PFp9A3s7cAbikWVWATwPzzBrIjW';
+
 @Injectable()
 export class AuthService {
   constructor(
@@ -40,7 +43,8 @@ export class AuthService {
 
   async login(email: string, password: string, mfaCode: string | undefined, ip: string | null, userAgent?: string) {
     const user = await this.findWithSecrets({ email });
-    const ok = user?.passwordHash && user.isActive && (await bcrypt.compare(password, user.passwordHash));
+    // Unknown e-mails are compared against a dummy hash so both cases take the same time (no account guessing by timing).
+    const ok = (await bcrypt.compare(password, user?.passwordHash ?? DUMMY_HASH)) && !!user?.passwordHash && user.isActive;
     if (!user || !ok) throw new UnauthorizedException('Invalid email or password');
 
     if (user.mfaEnabled) {
@@ -193,13 +197,17 @@ export class AuthService {
     return { ok: true };
   }
 
-  async changePassword(userId: string, current: string, next: string) {
+  async changePassword(userId: string, current: string, next: string, keepSessionId?: string) {
     const user = await this.findWithSecrets({ id: userId });
     if (!user?.passwordHash || !(await bcrypt.compare(current, user.passwordHash))) {
       throw new BadRequestException('Current password is incorrect');
     }
     await this.users.update(user.id, { passwordHash: await this.hashPassword(next) });
-    await this.audit.log({ actorId: userId, action: 'auth.password_changed', entityType: 'user', entityId: userId });
+    // Sign out every other device; the session that changed the password stays signed in.
+    const others = this.sessions.createQueryBuilder().delete().where('user_id = :userId', { userId });
+    if (keepSessionId) others.andWhere('id <> :keep', { keep: keepSessionId });
+    const { affected } = await others.execute();
+    await this.audit.log({ actorId: userId, action: 'auth.password_changed', after: { otherSessionsSignedOut: affected ?? 0 }, entityType: 'user', entityId: userId });
     return { ok: true };
   }
 
