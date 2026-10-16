@@ -1,11 +1,12 @@
 import { Controller, Delete, Get, Param, ParseUUIDPipe, Post } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
-import { CurrentUser } from '../../common/decorators/auth.decorators.js';
+import { AllowMfaPending, CurrentUser } from '../../common/decorators/auth.decorators.js';
 import type { AuthUser } from '../../common/decorators/auth.decorators.js';
 import { AuthService } from './auth.service.js';
 
 @ApiTags('auth')
 @ApiBearerAuth()
+@AllowMfaPending()
 @Controller('auth/sessions')
 export class SessionsController {
   constructor(private readonly auth: AuthService) {}

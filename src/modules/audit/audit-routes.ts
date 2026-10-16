@@ -23,6 +23,8 @@ export const AUDIT_SKIP = new Set([
   'POST /webhooks/email-events', 'POST /webhooks/email-inbound',
   // Logs its own entry without the person's details (a before/after copy would keep what was erased).
   'POST /contacts/:id/erase',
+  // Public "stop reminders" link: logs its own entry (the body holds the signed link).
+  'POST /reminders/stop',
 ]);
 
 export const AUDIT_ROUTES: Record<string, AuditRoute> = {
@@ -39,8 +41,17 @@ export const AUDIT_ROUTES: Record<string, AuditRoute> = {
   'POST /auth/password/change': { action: 'auth.password_change', entity: 'user', id: 'self', say: 'changed their password' },
   'POST /auth/mfa/setup': { action: 'auth.mfa_setup', entity: 'user', id: 'self', say: 'started setting up two-factor sign-in' },
   'POST /auth/mfa/enable': { action: 'auth.mfa_enable', entity: 'user', table: 'users', id: 'self', say: 'turned on two-factor sign-in' },
+  'POST /auth/mfa/backup-codes': { action: 'auth.mfa_backup_codes', entity: 'user', id: 'self', say: 'made new two-factor backup codes' },
   'POST /auth/mfa/disable': { action: 'auth.mfa_disable', entity: 'user', table: 'users', id: 'self', say: 'turned off two-factor sign-in' },
   'PATCH /portal/me': { action: 'profile.update', entity: 'user', table: 'users', id: 'self', say: 'updated their profile' },
+
+  // ---------- reminders ----------
+  'POST /reminders/pause': { action: 'reminder.pause', entity: 'reminder', say: 'paused the reminders for {b.key}' },
+  'POST /reminders/resume': { action: 'reminder.resume', entity: 'reminder', say: 'turned the reminders back on for {b.key}' },
+  'POST /reminders/send': { action: 'reminder.send', entity: 'reminder', say: 'sent a reminder now for {b.key}' },
+  'POST /reminders/run': { action: 'reminder.run', entity: 'reminder', say: 'ran the daily reminders by hand' },
+  'PATCH /reminders/settings': { action: 'settings.reminders', entity: 'settings', say: 'changed the reminder settings' },
+  'POST /contacts/:id/reminders-on': { action: 'contact.reminders_on', entity: 'contact', table: 'contacts', id: 'id', say: 'turned reminder e-mails back on for {label}' },
 
   // ---------- users (admin) ----------
   'POST /users/invite': { action: 'user.invite', entity: 'user', table: 'users', id: 'result', say: 'invited {b.email} as {b.role}' },

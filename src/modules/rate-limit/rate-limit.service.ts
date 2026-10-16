@@ -23,6 +23,19 @@ export class RateLimitService {
     }
   }
 
+  /** Count in the current window without adding to it (for limits that only count failures). */
+  async peek(key: string, windowSeconds: number) {
+    const windowMs = windowSeconds * 1000;
+    const windowStart = new Date(Math.floor(Date.now() / windowMs) * windowMs);
+    const rows: { count: number }[] = await this.ds.query(`SELECT count FROM rate_limits WHERE key = $1 AND window_start = $2`, [key, windowStart]);
+    return rows[0]?.count ?? 0;
+  }
+
+  /** Add one to the current window without throwing. */
+  async record(key: string, windowSeconds: number) {
+    await this.hit(key, Number.MAX_SAFE_INTEGER, windowSeconds);
+  }
+
   /** Remove windows older than a day. */
   async cleanup() {
     await this.ds.query(`DELETE FROM rate_limits WHERE window_start < now() - interval '1 day'`);

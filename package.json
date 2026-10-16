@@ -34,7 +34,8 @@
     "smoke:audit": "node scripts/smoke-audit.mjs",
     "smoke:email": "node scripts/smoke-email.mjs",
     "smoke:plan": "node scripts/smoke-plan.mjs",
-    "smoke:privacy": "node scripts/smoke-privacy.mjs"
+    "smoke:privacy": "node scripts/smoke-privacy.mjs",
+    "smoke:reminders": "node scripts/smoke-reminders.mjs"
   },
   "dependencies": {
     "@nestjs/common": "^12.0.1",

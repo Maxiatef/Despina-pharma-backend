@@ -2,7 +2,8 @@ import { CanActivate, ExecutionContext, ForbiddenException, Injectable, Unauthor
 import { Reflector } from '@nestjs/core';
 import type { Request } from 'express';
 import { AuthService } from './auth.service.js';
-import { IS_PUBLIC_KEY, ROLES_KEY } from '../../common/decorators/auth.decorators.js';
+import { IS_PUBLIC_KEY, MFA_PENDING_OK_KEY, ROLES_KEY } from '../../common/decorators/auth.decorators.js';
+import type { AuthUser } from '../../common/decorators/auth.decorators.js';
 import type { UserRole } from '../../common/enums.js';
 
 export const SESSION_COOKIE = 'dp_session';
@@ -31,6 +32,9 @@ export class AuthGuard implements CanActivate {
     if (user) req.user = user;
     if (isPublic) return true;
     if (!user) throw new UnauthorizedException();
+    if ((user as AuthUser).mfaPending && !this.reflector.getAllAndOverride<boolean>(MFA_PENDING_OK_KEY, targets)) {
+      throw new ForbiddenException({ message: 'Please turn on two-factor login first (My account).', mfaSetupRequired: true });
+    }
 
     const roles = this.reflector.getAllAndOverride<UserRole[]>(ROLES_KEY, targets);
     if (roles?.length && !roles.includes(user.role)) throw new ForbiddenException();

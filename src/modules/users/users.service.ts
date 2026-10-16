@@ -86,7 +86,7 @@ export class UsersService {
 
   /** Admin reset of a user's two-factor login (lost phone). */
   async resetMfa(id: string, actorId: string) {
-    await this.users.update(id, { mfaEnabled: false, mfaSecret: null });
+    await this.users.update(id, { mfaEnabled: false, mfaSecret: null, mfaBackupCodes: null });
     await this.auth.logoutEverywhere(id);
     await this.audit.log({ actorId, action: 'user.mfa_reset', entityType: 'user', entityId: id });
     return { ok: true };

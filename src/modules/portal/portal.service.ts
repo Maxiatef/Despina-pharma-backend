@@ -60,7 +60,7 @@ export class PortalService {
       : [[], [], []];
     return {
       projects: projects.map((p) => ({
-        id: p.id, code: p.code, name: p.name, status: p.status, updatedAt: p.updatedAt,
+        id: p.id, code: p.code, name: p.name, status: p.status, updatedAt: p.updatedAt, promisedDate: p.promisedDate,
         currentStage: stages.find((s) => s.id === p.currentStageId)?.name ?? null,
       })),
       waitingForYou: { quotes, samples },

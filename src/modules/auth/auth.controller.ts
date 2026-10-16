@@ -3,7 +3,7 @@ import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import type { Request, Response } from 'express';
 import { AuthService } from './auth.service.js';
 import { SESSION_COOKIE } from './auth.guard.js';
-import { CurrentUser, Public } from '../../common/decorators/auth.decorators.js';
+import { AllowMfaPending, CurrentUser, Public } from '../../common/decorators/auth.decorators.js';
 import type { AuthUser } from '../../common/decorators/auth.decorators.js';
 import { clientIp } from '../../common/utils.js';
 import { RateLimitService } from '../rate-limit/rate-limit.service.js';
@@ -37,6 +37,7 @@ export class AuthController {
     return result;
   }
 
+  @AllowMfaPending()
   @Post('logout')
   @HttpCode(200)
   async logout(@CurrentUser() user: AuthUser, @Res({ passthrough: true }) res: Response) {
@@ -45,16 +46,25 @@ export class AuthController {
     return { ok: true };
   }
 
+  @AllowMfaPending()
   @Get('me')
   me(@CurrentUser() user: AuthUser) {
     return user;
   }
 
+  @AllowMfaPending()
+  @Get('mfa')
+  mfaStatus(@CurrentUser() user: AuthUser) {
+    return this.auth.mfaStatus(user.id);
+  }
+
+  @AllowMfaPending()
   @Post('mfa/setup')
   mfaSetup(@CurrentUser() user: AuthUser) {
     return this.auth.mfaSetup(user.id);
   }
 
+  @AllowMfaPending()
   @Post('mfa/enable')
   @HttpCode(200)
   mfaEnable(@CurrentUser() user: AuthUser, @Body() dto: CodeDto) {
@@ -65,6 +75,12 @@ export class AuthController {
   @HttpCode(200)
   mfaDisable(@CurrentUser() user: AuthUser, @Body() dto: CodeDto) {
     return this.auth.mfaDisable(user.id, dto.code);
+  }
+
+  @Post('mfa/backup-codes')
+  @HttpCode(200)
+  mfaBackupCodes(@CurrentUser() user: AuthUser, @Body() dto: CodeDto) {
+    return this.auth.mfaNewBackupCodes(user.id, dto.code);
   }
 
   @Public()
@@ -95,6 +111,7 @@ export class AuthController {
     return this.auth.setPasswordWithToken(dto.token, 'reset', dto.password);
   }
 
+  @AllowMfaPending()
   @Post('password/change')
   @HttpCode(200)
   change(@CurrentUser() user: AuthUser, @Body() dto: ChangePasswordDto) {

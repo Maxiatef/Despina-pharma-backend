@@ -191,7 +191,7 @@ async function run() {
   check('admin resets the user\'s MFA (and signs them out)', reset.status === 200, reset.body);
   check('reset-MFA ended the user\'s sessions', (await call('GET', '/auth/me', { token: rndTok2 })).status === 401);
   const relog = await call('POST', '/auth/login', { body: { email: `rnd.${RUN}@${DOMAIN}`, password: rnd.password } });
-  check('login without MFA after reset', relog.status === 200 && relog.body.mfaSetupRequired === true, relog.body);
+  check('login without MFA after reset', relog.status === 200 && relog.body.mfaSetupRequired === (process.env.REQUIRE_STAFF_MFA !== 'false'), relog.body);
   const rndTok3 = relog.body.token;
   check('password change: wrong current â†’ 400', (await call('POST', '/auth/password/change', { token: rndTok3, body: { currentPassword: 'nope', newPassword: 'Another-Passw0rd!' } })).status === 400);
   check('password change: too short â†’ 400', (await call('POST', '/auth/password/change', { token: rndTok3, body: { currentPassword: rnd.password, newPassword: 'short' } })).status === 400);

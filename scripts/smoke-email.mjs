@@ -60,7 +60,7 @@ async function run() {
 
   section('Settings (admins only)');
   const settings = await call('GET', '/settings/email', { token: admin });
-  check('GET /settings/email', settings.status === 200 && settings.body.staffNotifications.length === 13 && settings.body.customerEmails.length === 10, settings.body.status);
+  check('GET /settings/email', settings.status === 200 && settings.body.staffNotifications.length === 14 && settings.body.customerEmails.length === 11, settings.body.status);
   check('status: provider + key + webhook secret reported (never the values)', 'resendKeySet' in settings.body.status && !JSON.stringify(settings.body).includes(process.env.RESEND_API_KEY ?? '§none§'));
   const original = settings.body.values;
   check('unknown key → 400', (await call('PATCH', '/settings/email', { token: admin, body: { values: { 'nope.key': 'x' } } })).status === 400);

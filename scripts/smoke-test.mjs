@@ -212,7 +212,7 @@ async function run() {
   check('customer login', custLogin.status === 200 && custLogin.body.mfaSetupRequired === false, custLogin.body);
   const cust = custLogin.body.token;
   const qLogin = await call('POST', '/auth/login', { body: { email: `quality.${RUN}@${DOMAIN}`, password: qPass } });
-  check('staff login flags MFA setup required', qLogin.status === 200 && qLogin.body.mfaSetupRequired === true);
+  check('staff login flags MFA setup required', qLogin.status === 200 && qLogin.body.mfaSetupRequired === (process.env.REQUIRE_STAFF_MFA !== 'false'));
   const quality = qLogin.body.token;
   check('customer cannot open the lead dashboard', (await call('GET', '/inquiries', { token: cust })).status === 403);
   check('non-admin staff cannot manage users', (await call('GET', '/users', { token: quality })).status === 403);

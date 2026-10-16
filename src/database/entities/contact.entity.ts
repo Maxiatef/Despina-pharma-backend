@@ -52,4 +52,8 @@ export class Contact extends BaseEntity {
 
   @Column({ name: 'email_status_detail', type: 'text', nullable: true })
   emailStatusDetail: string | null;
+
+  /** The contact turned off reminder e-mails (link in every reminder). */
+  @Column({ name: 'reminders_off_at', type: 'timestamptz', nullable: true })
+  remindersOffAt: Date | null;
 }

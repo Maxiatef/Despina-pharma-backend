@@ -6,6 +6,7 @@ import { EmailService } from '../email/email.service.js';
 import { TasksService } from '../tasks/tasks.service.js';
 import { RateLimitService } from '../rate-limit/rate-limit.service.js';
 import { AuthService } from '../auth/auth.service.js';
+import { RemindersService } from '../reminders/reminders.service.js';
 
 /**
  * Scheduled jobs for serverless hosting (Vercel Cron, see vercel.json).
@@ -22,6 +23,7 @@ export class CronController {
     private readonly tasks: TasksService,
     private readonly rateLimit: RateLimitService,
     private readonly auth: AuthService,
+    private readonly reminders: RemindersService,
   ) {}
 
   private check(authorization?: string) {
@@ -31,17 +33,18 @@ export class CronController {
     if (!secret || expected.length !== given.length || !timingSafeEqual(expected, given)) throw new UnauthorizedException();
   }
 
-  /** GET /api/cron/run – email queue, overdue-task reminders, cleanup. */
+  /** GET /api/cron/run – email queue, overdue-task reminders, customer reminders + waiting lists, cleanup. */
   @Public()
   @Get('run')
   async run(@Headers('authorization') authorization?: string) {
     this.check(authorization);
     await this.email.processQueue();
     const digest = await this.tasks.sendOverdueDigest();
+    const reminders = await this.reminders.run();
     await this.rateLimit.cleanup();
     await this.auth.purgeExpiredSessions();
-    this.logger.log(`cron run: overdue digests ${digest.sent}`);
-    return { ok: true, overdueDigests: digest.sent };
+    this.logger.log(`cron run: overdue digests ${digest.sent}, reminders ${reminders.customerReminders}, waiting lists ${reminders.staffDigests}`);
+    return { ok: true, overdueDigests: digest.sent, ...reminders };
   }
 
   /** GET /api/cron/email-queue – only the email queue (for a more frequent schedule). */

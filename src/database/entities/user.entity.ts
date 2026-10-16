@@ -32,6 +32,10 @@ export class User extends BaseEntity {
   @Column({ name: 'mfa_enabled', default: false })
   mfaEnabled: boolean;
 
+  /** sha256 hashes of the unused one-time backup codes. */
+  @Column({ name: 'mfa_backup_codes', type: 'jsonb', nullable: true, select: false })
+  mfaBackupCodes: string[] | null;
+
   @Column({ name: 'is_active', default: true })
   isActive: boolean;
 

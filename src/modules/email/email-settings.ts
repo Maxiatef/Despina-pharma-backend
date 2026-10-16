@@ -12,11 +12,11 @@
 export type StaffNotificationKey =
   | 'inquiry.contact' | 'inquiry.new_product' | 'inquiry.new_customer' | 'inquiry.sample_request' | 'inquiry.sample_feedback'
   | 'customer.message' | 'quote.response' | 'approval.received' | 'sample.feedback'
-  | 'lead.assigned' | 'task.assigned' | 'task.overdue' | 'email.failure';
+  | 'lead.assigned' | 'task.assigned' | 'task.overdue' | 'waiting.digest' | 'email.failure';
 
 export type CustomerEmailKey =
   | 'inquiry_ack' | 'reply' | 'info_request' | 'quote_ready' | 'quote_response_ack' | 'sample_shipped'
-  | 'feedback_request' | 'document_ready' | 'approval_request' | 'stage_update';
+  | 'feedback_request' | 'document_ready' | 'approval_request' | 'stage_update' | 'reminder';
 
 export interface StaffNotificationDef {
   key: StaffNotificationKey;
@@ -41,6 +41,7 @@ export const STAFF_NOTIFICATIONS: StaffNotificationDef[] = [
   { key: 'lead.assigned', label: 'Lead assigned to you', description: 'Tells a staff member that a lead was assigned to them.', recipients: 'person' },
   { key: 'task.assigned', label: 'Task assigned to you', description: 'Tells a staff member that a task was assigned to them.', recipients: 'person' },
   { key: 'task.overdue', label: 'Daily overdue-task reminder', description: 'Each morning, every staff member with overdue tasks gets one list.', recipients: 'person' },
+  { key: 'waiting.digest', label: 'Daily "waiting on you" list', description: 'Each morning, the project owner / lead owner gets one list of what waits on Despina: unanswered customer messages, quote changes, sample feedback, promised dates soon or passed.', recipients: 'person' },
   { key: 'email.failure', label: 'An e-mail could not be sent', description: 'Sent when an e-mail still fails after all retries, or the address bounced.', recipients: 'list' },
 ];
 
@@ -61,6 +62,7 @@ export const CUSTOMER_EMAILS: CustomerEmailDef[] = [
   { key: 'document_ready', label: 'New document available', description: 'Sent when a customer-visible document (or a new version) is ready to download.' },
   { key: 'approval_request', label: 'Approval requested', description: 'Sent when staff click "Request approval" on a document.' },
   { key: 'stage_update', label: 'Project stage update', description: 'Sent when a project (or one of its products) moves to its next stage.' },
+  { key: 'reminder', label: 'Friendly reminders', description: 'Automatic reminder when a quote, a sample or a question waits for the customer (schedule in Admin → Lead rules → Reminders). Stops when they answer.' },
 ];
 
 /** Account e-mails are always sent – they are needed to sign in. */

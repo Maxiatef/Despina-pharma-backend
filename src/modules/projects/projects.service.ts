@@ -54,6 +54,26 @@ export const DEFAULT_STAGES: StageDefinition[] = [
   { name: 'Completed' },
 ];
 
+const fmtDay = (d: string | null | undefined) =>
+  d ? new Date(`${d}T00:00:00Z`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' }) : 'not set';
+
+/** Customers see the promised date only; the internal target date stays with staff. */
+function forViewer<T extends { targetDate?: string | null }>(user: AuthUser, row: T): T {
+  if (isStaff(user)) return row;
+  const { targetDate: _hidden, ...rest } = row;
+  return rest as T;
+}
+
+/** Only staff set dates; the reason is not a column. */
+function dateFields<T extends { targetDate?: string | null; promisedDate?: string | null; dateReason?: string }>(user: AuthUser, dto: T) {
+  const { targetDate, promisedDate, dateReason, ...rest } = dto;
+  if (!isStaff(user)) return { rest, dates: {} as Record<string, string | null>, reason: undefined };
+  const dates: Record<string, string | null> = {};
+  if (targetDate !== undefined) dates.targetDate = targetDate;
+  if (promisedDate !== undefined) dates.promisedDate = promisedDate;
+  return { rest, dates, reason: dateReason?.trim() || undefined };
+}
+
 @Injectable()
 export class ProjectsService {
   constructor(
@@ -216,7 +236,7 @@ export class ProjectsService {
     const [{ entities, raw }, total] = await Promise.all([qb.getRawAndEntities(), qb.getCount()]);
     const items = entities.map((e) => {
       const r = raw.find((x) => x.p_id === e.id) ?? {};
-      return { ...e, companyName: r.c_name, currentStage: r.st_name ?? null };
+      return { ...forViewer(user, e), companyName: r.c_name, currentStage: r.st_name ?? null };
     });
     return paged(items, total, q);
   }
@@ -238,14 +258,14 @@ export class ProjectsService {
         ])
       : [[], []];
     return {
-      ...project,
+      ...forViewer(user, project),
       company,
       owner: owner ? { id: owner.id, email: owner.email } : null,
       stages,
       products: products.map((p) => {
         const own = productStages.filter((s) => s.projectProductId === p.id);
         return {
-          ...p,
+          ...forViewer(user, p),
           samples: samples.filter((s) => s.projectProductId === p.id),
           stages: own,
           // Roll-up for the project view: counts only, no invented percentages.
@@ -260,7 +280,9 @@ export class ProjectsService {
 
   async update(user: AuthUser, id: string, dto: UpdateProjectDto) {
     const before = await this.access.project(user, id);
-    const { statusReason, ...changes } = dto;
+    const { rest, dates, reason: dateReason } = dateFields(user, dto);
+    const { statusReason, ...changes } = rest;
+    Object.assign(changes, dates);
     const reason = statusReason?.trim();
     const changed = changes.status && changes.status !== before.status ? changes.status : null;
     if (changed && REASON_REQUIRED.includes(changed) && !reason) {
@@ -270,6 +292,11 @@ export class ProjectsService {
       await m.getRepository(Project).update(id, changes);
       if (changed) {
         const note = `Status: ${humanStatus(changed)}${reason ? ` – ${reason}` : ''}`;
+        await m.getRepository(StatusEvent).insert({ projectId: id, actorId: user.id, note });
+      }
+      // The promised date is the one the customer relies on, so each change shows on the project timeline.
+      if (dates.promisedDate !== undefined && dates.promisedDate !== before.promisedDate) {
+        const note = `Expected date: ${fmtDay(dates.promisedDate)}${before.promisedDate ? ` (was ${fmtDay(before.promisedDate)})` : ''}${dateReason ? ` – ${dateReason}` : ''}`;
         await m.getRepository(StatusEvent).insert({ projectId: id, actorId: user.id, note });
       }
     });
@@ -343,7 +370,8 @@ export class ProjectsService {
     }
     if (!name) throw new BadRequestException('Name, catalogItemId or serviceId is required');
     const product = await this.ds.transaction(async (m) => {
-      const saved = await m.getRepository(ProjectProduct).save(m.getRepository(ProjectProduct).create({ ...dto, name, projectId }));
+      const { rest, dates } = dateFields(user, dto);
+      const saved = await m.getRepository(ProjectProduct).save(m.getRepository(ProjectProduct).create({ ...rest, ...dates, name, projectId }));
       await this.createProductStages(m, saved);
       return saved;
     });
@@ -370,8 +398,15 @@ export class ProjectsService {
 
   async updateProduct(user: AuthUser, productId: string, dto: UpdateProjectProductDto) {
     const { product } = await this.access.product(user, productId);
+    const { rest, dates, reason } = dateFields(user, dto);
+    const before = product.promisedDate;
     const repo = this.ds.getRepository(ProjectProduct);
-    return repo.save(repo.merge(product, dto));
+    const saved = await repo.save(repo.merge(product, { ...rest, ...dates }));
+    if (dates.promisedDate !== undefined && dates.promisedDate !== before) {
+      const note = `Expected date for "${product.name}": ${fmtDay(dates.promisedDate)}${before ? ` (was ${fmtDay(before)})` : ''}${reason ? ` – ${reason}` : ''}`;
+      await this.ds.getRepository(StatusEvent).insert({ projectId: product.projectId, actorId: user.id, note });
+    }
+    return forViewer(user, saved);
   }
 
   async removeProduct(user: AuthUser, productId: string) {

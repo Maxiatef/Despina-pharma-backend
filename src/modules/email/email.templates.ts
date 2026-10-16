@@ -9,7 +9,7 @@ export type TemplateName =
   | 'message_to_customer' | 'message_to_staff' | 'info_request'
   | 'quote_ready' | 'quote_response_staff' | 'quote_response_ack' | 'approval_staff' | 'sample_feedback_staff'
   | 'sample_shipped' | 'feedback_request' | 'document_ready' | 'approval_request' | 'stage_update'
-  | 'invite' | 'password_reset' | 'failure_alert' | 'staff_alert' | 'test';
+  | 'invite' | 'password_reset' | 'failure_alert' | 'staff_alert' | 'test' | 'customer_reminder' | 'waiting_digest';
 
 export interface RenderedEmail {
   subject: string;
@@ -34,6 +34,8 @@ interface Content {
   after?: string[];
   /** Why the reader gets this e-mail (footer). */
   reason: string;
+  /** Footer link to stop this kind of e-mail (reminders). */
+  stop?: { label: string; url: string };
 }
 
 const BRAND = {
@@ -138,6 +140,17 @@ function content(t: TemplateName, raw: Data, app: string): Content {
         details: [['For', d.forRef], ['Due', fmtDate(d.dueAt)], ['Priority', d.priority]],
         cta: { label: 'Open', url: `${app}${d.path ?? '/admin/tasks/'}` },
         reason: 'You get this because a task was assigned to you.',
+      };
+    case 'waiting_digest':
+      return {
+        subject: `${(d.items ?? []).length} item${(d.items ?? []).length === 1 ? '' : 's'} waiting on Despina`,
+        preheader: 'Customers are waiting for these',
+        eyebrow: 'Daily reminder',
+        title: 'Waiting on you',
+        paragraphs: ['These items wait for an answer or a next step from our side.'],
+        list: d.items ?? [],
+        cta: { label: 'Open the waiting list', url: `${app}/admin/waiting/` },
+        reason: 'Daily list for project and lead owners (Admin → Settings → Emails).',
       };
     case 'overdue_digest':
       return {
@@ -309,6 +322,40 @@ function content(t: TemplateName, raw: Data, app: string): Content {
         after: ['When it arrives, you can record your feedback on this exact revision in your workspace.'],
         reason: 'You get this because you have a project workspace with Despina Pharma.',
       };
+    case 'customer_reminder': {
+      const portal = d.projectId ? portalProject : null;
+      const base = { eyebrow: 'Friendly reminder', reason: 'You get this because something in your Despina Pharma request or project is waiting for you.', stop: d.stopUrl ? { label: 'Stop reminder e-mails', url: d.stopUrl } : undefined };
+      if (d.kind === 'quote') {
+        return {
+          ...base,
+          subject: `Reminder: your quote ${d.quoteNo} is waiting for you`,
+          preheader: `${d.projectName ?? ''}`,
+          title: `Quote ${d.quoteNo} is ready for your answer`,
+          paragraphs: [hello(d), `Your quote ${d.quoteNo} for ${d.projectName} is still waiting for your answer. You can accept it, ask for changes or decline it in your workspace.`],
+          cta: portal ? { label: 'Review the quote', url: portal } : undefined,
+          after: ['Questions about the quote? Simply reply to this e-mail.'],
+        };
+      }
+      if (d.kind === 'sample') {
+        return {
+          ...base,
+          subject: `Reminder: how did ${d.sampleTitle} perform?`,
+          preheader: 'Your feedback shapes the next revision.',
+          title: 'We would love your feedback',
+          paragraphs: [hello(d), `Have you had a chance to try ${d.sampleTitle} (revision ${d.revisionNo}) for ${d.productName}? A few words on appearance, texture, scent and after-feel help us with the next step.`],
+          cta: portal ? { label: 'Give feedback', url: portal } : undefined,
+        };
+      }
+      return {
+        ...base,
+        subject: `Reminder: we still need a few details – ${d.referenceNo}`,
+        preheader: String(d.question ?? '').slice(0, 90),
+        title: 'A few more details, please',
+        paragraphs: [hello(d), `To move your request ${d.referenceNo} forward, we still need some information from you:`],
+        quote: d.question,
+        after: ['Simply reply to this e-mail with your answer. Thank you!'],
+      };
+    }
     case 'feedback_request':
       return {
         subject: `How did ${d.sampleTitle} perform?`,
@@ -437,7 +484,7 @@ function html(c: Content, app: string) {
     <div style="font:15px Georgia,'Times New Roman',serif;color:${BRAND.navy}">${BRAND.name}</div>
     <div style="font:600 10px/1.8 Arial,Helvetica,sans-serif;letter-spacing:1.4px;text-transform:uppercase;color:#0a8fa3">${esc(BRAND.tagline)}</div>
     <div style="font:12px/1.6 Arial,Helvetica,sans-serif;color:${BRAND.muted};margin-top:6px">${esc(BRAND.about)}<br><a href="${esc(app)}/" style="color:${BRAND.muted}">${esc(app.replace(/^https?:\/\//, ''))}</a></div>
-    <div style="font:11px/1.6 Arial,Helvetica,sans-serif;color:#98a2b3;margin-top:10px">${esc(c.reason)}</div>
+    <div style="font:11px/1.6 Arial,Helvetica,sans-serif;color:#98a2b3;margin-top:10px">${esc(c.reason)}${c.stop ? ` <a href="${esc(c.stop.url)}" style="color:#98a2b3">${esc(c.stop.label)}</a>` : ''}</div>
   </td></tr>
 </table>
 </td></tr></table>
@@ -460,6 +507,7 @@ function text(c: Content, app: string) {
     `${BRAND.name} – ${BRAND.tagline}`,
     app,
     c.reason,
+    ...(c.stop ? [`${c.stop.label}: ${c.stop.url}`] : []),
   ].join('\n');
 }
 
@@ -473,5 +521,5 @@ export const TEMPLATE_NAMES: TemplateName[] = [
   'owner_notice', 'customer_ack', 'lead_assigned', 'task_assigned', 'overdue_digest', 'message_to_customer', 'message_to_staff',
   'info_request', 'quote_ready', 'quote_response_staff', 'quote_response_ack', 'approval_staff', 'sample_feedback_staff',
   'sample_shipped', 'feedback_request', 'document_ready', 'approval_request', 'stage_update', 'invite', 'password_reset',
-  'failure_alert', 'staff_alert', 'test',
+  'failure_alert', 'staff_alert', 'test', 'customer_reminder', 'waiting_digest',
 ];

@@ -58,6 +58,14 @@ export class Project extends BaseEntity {
   @Column({ name: 'source_inquiry_id', type: 'uuid', nullable: true })
   sourceInquiryId: string | null;
 
+  /** Internal target date (staff only). */
+  @Column({ name: 'target_date', type: 'date', nullable: true })
+  targetDate: string | null;
+
+  /** Date committed to the customer (shown in the portal). */
+  @Column({ name: 'promised_date', type: 'date', nullable: true })
+  promisedDate: string | null;
+
   @ManyToOne(() => Inquiry, { onDelete: 'SET NULL' })
   @JoinColumn({ name: 'source_inquiry_id' })
   sourceInquiry?: Relation<Inquiry> | null;

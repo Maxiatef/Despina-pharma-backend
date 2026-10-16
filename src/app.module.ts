@@ -40,6 +40,7 @@ import { PortalModule } from './modules/portal/portal.module.js';
 
 // Scheduled jobs (Vercel Cron)
 import { CronModule } from './modules/cron/cron.module.js';
+import { RemindersModule } from './modules/reminders/reminders.module.js';
 
 @Module({
   imports: [
@@ -81,6 +82,7 @@ import { CronModule } from './modules/cron/cron.module.js';
     ApprovalsModule,
     MessagesModule,
     PortalModule,
+    RemindersModule,
 
     CronModule,
   ],

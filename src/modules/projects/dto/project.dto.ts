@@ -3,6 +3,7 @@ import { Type } from 'class-transformer';
 import {
   ArrayMaxSize,
   IsArray,
+  IsDateString,
   IsIn,
   IsInt,
   IsOptional,
@@ -10,6 +11,7 @@ import {
   IsUUID,
   MaxLength,
   Min,
+  ValidateIf,
   ValidateNested,
 } from 'class-validator';
 import { PROJECT_STATUSES } from '../../../common/enums.js';
@@ -29,6 +31,11 @@ export class UpdateProjectDto {
   @ApiPropertyOptional({ enum: PROJECT_STATUSES }) @IsOptional() @IsIn(PROJECT_STATUSES) status?: ProjectStatus;
   @ApiPropertyOptional() @IsOptional() @IsUUID() ownerId?: string;
   @ApiPropertyOptional({ description: 'Required when the status changes to on_hold or cancelled' }) @IsOptional() @IsString() @MaxLength(2000) statusReason?: string;
+  @ApiPropertyOptional({ description: 'Internal target date (YYYY-MM-DD, staff only); null clears it', nullable: true })
+  @IsOptional() @ValidateIf((_, v) => v !== null) @IsDateString({ strict: true }) targetDate?: string | null;
+  @ApiPropertyOptional({ description: 'Date promised to the customer (YYYY-MM-DD, shown in the portal); null clears it', nullable: true })
+  @IsOptional() @ValidateIf((_, v) => v !== null) @IsDateString({ strict: true }) promisedDate?: string | null;
+  @ApiPropertyOptional({ description: 'Why the promised date changed (shown on the project timeline)' }) @IsOptional() @IsString() @MaxLength(500) dateReason?: string;
 }
 
 export class ProjectQueryDto extends PageQueryDto {
@@ -82,5 +89,10 @@ export class CreateProjectProductDto {
   @ApiPropertyOptional() @IsOptional() @Type(() => Number) @IsInt() @Min(0) targetQuantity?: number;
   @ApiPropertyOptional() @IsOptional() @IsString() notes?: string;
   @ApiPropertyOptional({ type: ProductDetailsDto }) @IsOptional() @ValidateNested() @Type(() => ProductDetailsDto) details?: ProductDetailsDto;
+  @ApiPropertyOptional({ description: 'Internal target date (YYYY-MM-DD, staff only); null clears it', nullable: true })
+  @IsOptional() @ValidateIf((_, v) => v !== null) @IsDateString({ strict: true }) targetDate?: string | null;
+  @ApiPropertyOptional({ description: 'Date promised to the customer (YYYY-MM-DD, shown in the portal); null clears it', nullable: true })
+  @IsOptional() @ValidateIf((_, v) => v !== null) @IsDateString({ strict: true }) promisedDate?: string | null;
+  @ApiPropertyOptional({ description: 'Why the promised date changed (shown on the project timeline)' }) @IsOptional() @IsString() @MaxLength(500) dateReason?: string;
 }
 export class UpdateProjectProductDto extends PartialType(CreateProjectProductDto) {}

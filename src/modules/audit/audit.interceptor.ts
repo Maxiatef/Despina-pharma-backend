@@ -15,6 +15,7 @@ const MUTATING = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 const SECRET_KEYS = new Set([
   'password', 'currentPassword', 'newPassword', 'token', 'inviteToken', 'uploadToken', 'resetToken', 'mfaCode', 'mfaSecret',
   'mfa_secret', 'passwordHash', 'password_hash', 'tokenHash', 'token_hash', 'secret', 'otpauthUrl', 'qrDataUrl', 'hp',
+  'mfa_backup_codes', 'mfaBackupCodes', 'backupCodes',
 ]);
 /** Only hidden in request bodies (a project row legitimately has a "code"). */
 const BODY_SECRET_KEYS = new Set(['code']);

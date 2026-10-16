@@ -4,9 +4,13 @@ import type { UserRole } from '../enums.js';
 
 export const IS_PUBLIC_KEY = 'isPublic';
 export const ROLES_KEY = 'roles';
+export const MFA_PENDING_OK_KEY = 'mfaPendingOk';
 
 /** Route needs no login (public website forms, catalog, webhooks). */
 export const Public = () => SetMetadata(IS_PUBLIC_KEY, true);
+
+/** Route stays open to staff who still have to turn on two-factor login (account, sessions, 2FA setup, logout). */
+export const AllowMfaPending = () => SetMetadata(MFA_PENDING_OK_KEY, true);
 
 /** Route is limited to these roles. */
 export const Roles = (...roles: UserRole[]) => SetMetadata(ROLES_KEY, roles);
@@ -21,6 +25,8 @@ export interface AuthUser {
   contactId: string | null;
   sessionId: string;
   companyIds: string[];
+  /** Staff account that must still turn on two-factor login: only the routes marked @AllowMfaPending work. */
+  mfaPending?: boolean;
 }
 
 export const CurrentUser = createParamDecorator(

@@ -46,6 +46,14 @@ export class ProjectProduct extends BaseEntity {
   @Column({ name: 'target_quantity', type: 'int', nullable: true })
   targetQuantity: number | null;
 
+  /** Internal target date (staff only). */
+  @Column({ name: 'target_date', type: 'date', nullable: true })
+  targetDate: string | null;
+
+  /** Date committed to the customer (shown in the portal). */
+  @Column({ name: 'promised_date', type: 'date', nullable: true })
+  promisedDate: string | null;
+
   @Column({ type: 'text', nullable: true })
   notes: string | null;
 

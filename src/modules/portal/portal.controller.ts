@@ -1,6 +1,6 @@
 import { Body, Controller, Get, HttpCode, Param, ParseUUIDPipe, Patch, Post } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
-import { CurrentUser } from '../../common/decorators/auth.decorators.js';
+import { AllowMfaPending, CurrentUser } from '../../common/decorators/auth.decorators.js';
 import type { AuthUser } from '../../common/decorators/auth.decorators.js';
 import { PortalService } from './portal.service.js';
 import { TeamService } from './team.service.js';
@@ -13,8 +13,8 @@ import { InviteColleagueDto, UpdateProfileDto } from './dto/portal.dto.js';
 export class PortalController {
   constructor(private readonly portal: PortalService, private readonly team: TeamService) {}
 
-  @Get('me') me(@CurrentUser() u: AuthUser) { return this.portal.me(u); }
-  @Patch('me') update(@CurrentUser() u: AuthUser, @Body() dto: UpdateProfileDto) { return this.portal.updateProfile(u, dto); }
+  @AllowMfaPending() @Get('me') me(@CurrentUser() u: AuthUser) { return this.portal.me(u); }
+  @AllowMfaPending() @Patch('me') update(@CurrentUser() u: AuthUser, @Body() dto: UpdateProfileDto) { return this.portal.updateProfile(u, dto); }
   @Get('overview') overview(@CurrentUser() u: AuthUser) { return this.portal.overview(u); }
 
   /** Colleagues in the customer's companies; the company's main contact (owner) can invite and remove them. */

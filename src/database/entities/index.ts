@@ -37,6 +37,7 @@ import { Message } from './message.entity.js';
 import { AuditEvent } from './audit-event.entity.js';
 import { QuoteResponse } from './quote-response.entity.js';
 import { AppSetting } from './app-setting.entity.js';
+import { ReminderState } from './reminder-state.entity.js';
 
 export * from './base.entity.js';
 export * from './company.entity.js';
@@ -120,4 +121,6 @@ export const ALL_ENTITIES = [
   AuditEvent,
   QuoteResponse,
   AppSetting,
+  ReminderState,
 ];
+export * from './reminder-state.entity.js';
