@@ -5,6 +5,9 @@ import { DocumentVersion } from './document-version.entity.js';
 import { Quote } from './quote.entity.js';
 import { QuoteLine } from './quote-line.entity.js';
 
+/** Quote terms (all optional, free text). */
+export interface QuoteTerms { paymentSchedule?: string; taxes?: string; exclusions?: string; assumptions?: string; leadTime?: string }
+
 @Entity('quote_versions')
 export class QuoteVersion extends BaseEntity {
   @Column({ name: 'quote_id', type: 'uuid' })
@@ -32,6 +35,10 @@ export class QuoteVersion extends BaseEntity {
   @ManyToOne(() => DocumentVersion, { onDelete: 'SET NULL' })
   @JoinColumn({ name: 'document_version_id' })
   documentVersion?: Relation<DocumentVersion> | null;
+
+  /** Payment schedule, taxes, exclusions, assumptions (and lead time); part of the version, so changing them needs a new version. */
+  @Column({ type: 'jsonb', default: () => `'{}'::jsonb` })
+  terms: QuoteTerms;
 
   @OneToMany(() => QuoteLine, (x) => x.quoteVersion)
   lines?: Relation<QuoteLine[]>;

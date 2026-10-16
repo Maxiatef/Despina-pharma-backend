@@ -8,6 +8,7 @@ import express from 'express';
 import * as helmetModule from 'helmet';
 import { AppModule } from './app.module.js';
 import { DatabaseExceptionFilter } from './common/filters/database-exception.filter.js';
+import { requestContext } from './common/request-context.js';
 
 // helmet ships CommonJS types, and Vercel type-checks this file with different module settings
 // than `nest build`, so its typings resolve differently there. Do not rely on them: find the
@@ -39,18 +40,21 @@ export async function createApp(): Promise<NestExpressApplication> {
   // killing the process, so the Vercel handler can log it and answer with the reason.
   const app = await NestFactory.create<NestExpressApplication>(AppModule, { abortOnError: false, rawBody: true });
   app.set('trust proxy', 1);
+  app.use(requestContext);
   app.use(helmet());
   app.use(cookieParser());
   // File bytes for PUT /api/uploads/:id/content (limit slightly above UPLOAD_MAX_MB; exact size checked in the service).
   const rawLimit = `${Number(process.env.UPLOAD_MAX_MB ?? 10) + 1}mb`;
   app.use(/^\/api\/uploads\/[^/]+\/content$/, express.raw({ type: () => true, limit: rawLimit }));
+  // Catalog product images (admin): PUT /api/admin/catalog/items/:id/image, up to 5 MB (checked in the service).
+  app.use(/^\/api\/admin\/catalog\/items\/[^/]+\/image$/, express.raw({ type: () => true, limit: '6mb' }));
 
   app.setGlobalPrefix('api');
   app.useGlobalFilters(new DatabaseExceptionFilter());
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }));
 
   const origins = (process.env.CORS_ORIGINS ?? '').split(',').map((s) => s.trim()).filter(Boolean);
-  app.enableCors({ origin: origins.length ? origins : false, credentials: true });
+  app.enableCors({ origin: origins.length ? origins : false, credentials: true, exposedHeaders: ['X-Request-Id'] });
 
   if (process.env.SWAGGER_ENABLED !== 'false') {
     const config = new DocumentBuilder()

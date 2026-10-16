@@ -32,7 +32,9 @@
     "db:free-connections": "node scripts/db-free-connections.mjs",
     "smoke:features": "node scripts/smoke-features.mjs",
     "smoke:audit": "node scripts/smoke-audit.mjs",
-    "smoke:email": "node scripts/smoke-email.mjs"
+    "smoke:email": "node scripts/smoke-email.mjs",
+    "smoke:plan": "node scripts/smoke-plan.mjs",
+    "smoke:privacy": "node scripts/smoke-privacy.mjs"
   },
   "dependencies": {
     "@nestjs/common": "^12.0.1",

@@ -29,6 +29,20 @@ describe('email templates', () => {
     expect(r.html).toContain('Hi &amp; hello');
   });
 
+  it('team notice lists product, quantity, timing, budget and attachments; empty rows are left out', () => {
+    const r = renderTemplate('owner_notice', { ...sample, items: ['Face serum – Skincare'], quantity: '5,000 units · 30 ml', timing: 'Q2 2027', budget: 'USD 2', attachments: 2 }, 'https://example.org');
+    for (const row of ['Products / services: Face serum – Skincare', 'Quantity / size: 5,000 units · 30 ml', 'Timing: Q2 2027', 'Budget: USD 2', 'Attachments: 2 files']) expect(r.text).toContain(row);
+    expect(renderTemplate('owner_notice', sample, 'https://example.org').text).not.toMatch(/Quantity \/ size:|Timing:|Budget:|Attachments:/);
+  });
+
+  it('sample feedback notice shows the structured answers', () => {
+    const r = renderTemplate('sample_feedback_staff', { ...sample, rating: 4, details: { decision: 'request_changes', texture: 'Too <thin>', changes: 'Thicker', documentIds: ['d1'] } }, 'https://example.org');
+    expect(r.text).toContain('Decision: Changes requested');
+    expect(r.text).toContain('Requested changes: Thicker');
+    expect(r.html).toContain('Too &lt;thin&gt;');
+    expect(r.text).toContain('Attachments: 1 file(s)');
+  });
+
   it('links point at the app and encode tokens', () => {
     expect(renderTemplate('invite', sample, 'https://example.org').text).toContain('https://example.org/accept-invite/?token=abc%20def');
     expect(renderTemplate('quote_ready', sample, 'https://example.org').html).toContain('https://example.org/portal/projects/p1/');

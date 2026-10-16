@@ -14,6 +14,10 @@ export class CreateContactDto {
 
 export class UpdateContactDto extends PartialType(CreateContactDto) {}
 
+export class EraseContactDto {
+  @ApiProperty({ description: 'The e-mail address of the contact, typed again to confirm' }) @IsString() @MaxLength(254) confirm: string;
+}
+
 export class ContactQueryDto extends PageQueryDto {
   @ApiPropertyOptional() @IsOptional() @IsUUID() companyId?: string;
 }

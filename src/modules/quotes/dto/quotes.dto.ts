@@ -9,10 +9,19 @@ export class QuoteLineDto {
   @ApiProperty() @Type(() => Number) @IsNumber({ maxDecimalPlaces: 2 }) @Min(0) quantity: number;
   @ApiProperty() @Type(() => Number) @IsNumber({ maxDecimalPlaces: 4 }) @Min(0) unitPrice: number;
 }
+/** Free-text quote terms shown to the customer with the line items. */
+export class QuoteTermsDto {
+  @ApiPropertyOptional({ description: 'e.g. 50% deposit, 50% before dispatch' }) @IsOptional() @IsString() @MaxLength(2000) paymentSchedule?: string;
+  @ApiPropertyOptional({ description: 'e.g. Prices exclude VAT 14%' }) @IsOptional() @IsString() @MaxLength(2000) taxes?: string;
+  @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(4000) exclusions?: string;
+  @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(4000) assumptions?: string;
+  @ApiPropertyOptional({ description: 'Estimate only, not a commitment' }) @IsOptional() @IsString() @MaxLength(500) leadTime?: string;
+}
 export class QuoteVersionDto {
   @ApiPropertyOptional({ default: 'USD' }) @IsOptional() @IsString() @Length(3, 3) currency?: string;
   @ApiPropertyOptional() @IsOptional() @IsDateString() validUntil?: string;
   @ApiPropertyOptional({ description: 'PDF of the quote, if uploaded' }) @IsOptional() @IsUUID() documentVersionId?: string;
+  @ApiPropertyOptional({ type: QuoteTermsDto }) @IsOptional() @ValidateNested() @Type(() => QuoteTermsDto) terms?: QuoteTermsDto;
   @ApiProperty({ type: [QuoteLineDto] }) @IsArray() @ArrayMinSize(1) @ValidateNested({ each: true }) @Type(() => QuoteLineDto) lines: QuoteLineDto[];
 }
 /** Customer's answer to the latest sent version (acceptance goes through POST /projects/:id/approvals). */

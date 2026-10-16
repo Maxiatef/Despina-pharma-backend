@@ -3,7 +3,7 @@ import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { CurrentUser, StaffOnly } from '../../common/decorators/auth.decorators.js';
 import type { AuthUser } from '../../common/decorators/auth.decorators.js';
 import { SamplesService } from './samples.service.js';
-import { CreateSampleDto, UpdateSampleDto, CreateSampleRevisionDto, UpdateSampleRevisionDto, CreateFeedbackDto } from './dto/samples.dto.js';
+import { CreateSampleDto, UpdateSampleDto, CreateSampleRevisionDto, UpdateSampleRevisionDto, CreateFeedbackDto, LinkFeedbackInquiryDto } from './dto/samples.dto.js';
 
 const ID = new ParseUUIDPipe();
 
@@ -29,6 +29,9 @@ export class SamplesController {
   @StaffOnly() @Patch('sample-revisions/:id') updateRevision(@CurrentUser() u: AuthUser, @Param('id', ID) id: string, @Body() dto: UpdateSampleRevisionDto) {
     return this.svc.updateRevision(u, id, dto);
   }
+  /** Staff: attach a sample review sent from the public website form (an inquiry) to this exact revision. */
+  @StaffOnly() @Post('sample-revisions/:id/link-inquiry')
+  linkInquiry(@CurrentUser() u: AuthUser, @Param('id', ID) id: string, @Body() dto: LinkFeedbackInquiryDto) { return this.svc.linkInquiry(u, id, dto.inquiry); }
   @Post('sample-revisions/:id/feedback') feedback(@CurrentUser() u: AuthUser, @Param('id', ID) id: string, @Body() dto: CreateFeedbackDto) {
     return this.svc.addFeedback(u, id, dto);
   }

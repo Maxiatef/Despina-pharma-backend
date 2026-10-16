@@ -8,6 +8,14 @@ import { ProjectStage } from './project-stage.entity.js';
 import { Sample } from './sample.entity.js';
 import { Service } from './service.entity.js';
 
+/** Product-line brief fields (all optional); notSure = fields the customer has not decided yet. */
+export interface ProductLineDetails {
+  category?: string; format?: string; path?: string; quantity?: string; fillSize?: string;
+  includeIngredients?: string; excludeIngredients?: string; texture?: string; fragrance?: string; color?: string; finish?: string;
+  packaging?: string; artwork?: string; market?: string; channels?: string; launchDate?: string; budget?: string; references?: string;
+  notSure?: string[];
+}
+
 /** "Add to project" product line (a brief, not a shopping cart). */
 @Entity('project_products')
 export class ProjectProduct extends BaseEntity {
@@ -40,6 +48,10 @@ export class ProjectProduct extends BaseEntity {
 
   @Column({ type: 'text', nullable: true })
   notes: string | null;
+
+  /** Product-line brief: format, path, fill size, ingredients, texture, packaging, market, launch, budget, references, notSure[]. */
+  @Column({ type: 'jsonb', default: () => `'{}'::jsonb` })
+  details: ProductLineDetails;
 
   /** Current stage of this product line's own stage track (NULL until stages are started). */
   @Column({ name: 'current_stage_id', type: 'uuid', nullable: true })

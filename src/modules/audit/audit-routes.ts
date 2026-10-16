@@ -21,6 +21,8 @@ export const AUDIT_SKIP = new Set([
   'POST /auth/login', 'POST /auth/logout', 'DELETE /auth/sessions/:id', 'POST /auth/sessions/revoke-all',
   'POST /uploads/initiate', 'PUT /uploads/:id/content',
   'POST /webhooks/email-events', 'POST /webhooks/email-inbound',
+  // Logs its own entry without the person's details (a before/after copy would keep what was erased).
+  'POST /contacts/:id/erase',
 ]);
 
 export const AUDIT_ROUTES: Record<string, AuditRoute> = {
@@ -62,6 +64,11 @@ export const AUDIT_ROUTES: Record<string, AuditRoute> = {
   'POST /inquiries/:id/assign': { action: 'inquiry.assign', entity: 'inquiry', table: 'inquiries', id: 'id', say: 'assigned {label} (and its unassigned tasks) to {user:userId}' },
   'DELETE /inquiries/:id/assign': { action: 'inquiry.unassign', entity: 'inquiry', table: 'inquiries', id: 'id', say: 'unassigned {label}' },
   'POST /inquiries/:id/messages': { action: 'inquiry.message', entity: 'inquiry', table: 'inquiries', id: 'id', say: 'replied to the customer on {label}' },
+  'POST /inquiries/:id/release': { action: 'inquiry.release', entity: 'inquiry', table: 'inquiries', id: 'id', say: 'released {label} from the spam check (not spam)' },
+  'DELETE /inquiries/:id/spam': { action: 'inquiry.delete_spam', entity: 'inquiry', id: 'id', say: 'deleted a form held as spam' },
+  'POST /portal/team/invite': { action: 'company.member_invite', entity: 'company', table: 'companies', id: 'body.companyId', say: 'invited {b.email} to the company {label}' },
+  'POST /portal/team/:userId/remove': { action: 'company.member_remove', entity: 'user', id: 'userId', say: 'removed a colleague from their company' },
+  'POST /portal/team/:userId/resend': { action: 'company.member_resend', entity: 'user', id: 'userId', say: 'sent a colleague invitation again' },
   'POST /inquiries/:id/convert': { action: 'inquiry.convert', entity: 'inquiry', table: 'inquiries', id: 'id', say: 'converted {label} into project {r.code}' },
 
   // ---------- tasks ----------

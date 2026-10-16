@@ -9,6 +9,7 @@ import { SettingsService } from '../settings/settings.service.js';
 import { EmailProvider } from './providers/email.provider.js';
 import { renderTemplate } from './email.templates.js';
 import type { TemplateName } from './email.templates.js';
+import { currentRequestId } from '../../common/request-context.js';
 import { emailRequestContext } from './email-context.js';
 import {
   CUSTOMER_EMAILS, SETTING_KEYS, STAFF_NOTIFICATIONS, isUndeliverableTestAddress, isValidEmail, parseRecipients,
@@ -143,6 +144,7 @@ export class EmailService implements OnModuleInit, OnModuleDestroy {
         bodyHtml: rendered.html,
         inquiryId: input.inquiryId ?? null,
         projectId: input.projectId ?? null,
+        requestId: currentRequestId(),
         status: skip ? 'skipped' : 'queued',
         lastError: skip,
       }),
@@ -229,7 +231,7 @@ export class EmailService implements OnModuleInit, OnModuleDestroy {
     } catch (err) {
       const message = (err as Error).message.slice(0, 2000);
       await this.jobs.update(job.id, { status: 'failed', lastError: message });
-      this.logger.warn(`could not send ${job.template ?? job.kind} to ${job.toEmail} (attempt ${job.attempts}/${MAX_ATTEMPTS}): ${message}`);
+      this.logger.warn(`${job.requestId ? `[${job.requestId}] ` : ''}could not send ${job.template ?? job.kind} to ${job.toEmail} (attempt ${job.attempts}/${MAX_ATTEMPTS}): ${message}`);
       if (job.attempts >= MAX_ATTEMPTS) await this.alertFailure({ ...job, lastError: message });
     }
   }

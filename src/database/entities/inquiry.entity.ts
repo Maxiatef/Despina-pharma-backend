@@ -62,6 +62,17 @@ export class Inquiry extends BaseEntity {
   @Column({ name: 'user_agent', type: 'text', nullable: true })
   userAgent: string | null;
 
+  /** Set when the spam check held the form for review: no e-mails, no follow-up task until staff release it. */
+  @Column({ name: 'held_at', type: 'timestamptz', nullable: true })
+  heldAt: Date | null;
+
+  @Column({ name: 'hold_reasons', type: 'jsonb', nullable: true })
+  holdReasons: string[] | null;
+
+  /** Tracking ID of the request that created it (also on its e-mails and in the server log). */
+  @Column({ name: 'request_id', type: 'varchar', length: 64, nullable: true })
+  requestId: string | null;
+
   @OneToMany(() => InquiryItem, (x) => x.inquiry)
   items?: Relation<InquiryItem[]>;
 

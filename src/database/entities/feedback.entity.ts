@@ -5,6 +5,13 @@ import { Inquiry } from './inquiry.entity.js';
 import { SampleRevision } from './sample-revision.entity.js';
 import { User } from './user.entity.js';
 
+/** Structured sample feedback (all optional). */
+export interface SampleFeedbackDetails {
+  decision?: 'approved_next_stage' | 'request_changes';
+  appearance?: string; texture?: string; scent?: string; performance?: string; afterFeel?: string; packaging?: string; changes?: string;
+  documentIds?: string[];
+}
+
 @Entity('feedback')
 export class Feedback extends BaseEntity {
   @Column({ name: 'sample_revision_id', type: 'uuid' })
@@ -33,4 +40,8 @@ export class Feedback extends BaseEntity {
 
   @Column({ type: 'text', nullable: true })
   comments: string | null;
+
+  /** Structured answers: decision, appearance, texture, scent, performance, afterFeel, changes, attachment document IDs. */
+  @Column({ type: 'jsonb', default: () => `'{}'::jsonb` })
+  details: SampleFeedbackDetails;
 }

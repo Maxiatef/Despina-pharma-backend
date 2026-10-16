@@ -59,6 +59,8 @@ export class SubmitInquiryDto {
   @ApiPropertyOptional({ type: [InquiryUploadRefDto] }) @IsOptional() @IsArray() @ArrayMaxSize(20) @ValidateNested({ each: true }) @Type(() => InquiryUploadRefDto) uploads?: InquiryUploadRefDto[];
   @ApiProperty({ type: InquiryConsentDto }) @IsDefined() @ValidateNested() @Type(() => InquiryConsentDto) consent: InquiryConsentDto;
   @ApiPropertyOptional({ description: 'Honeypot – must stay empty (hidden field)' }) @IsOptional() @IsString() hp?: string;
+  @ApiPropertyOptional({ description: 'Milliseconds between opening the form and sending it (spam check)' })
+  @IsOptional() @Type(() => Number) @IsInt() @Min(0) @Max(86_400_000) elapsedMs?: number;
 }
 
 /** Same as SubmitInquiryDto but formType is fixed by the endpoint. */
@@ -77,6 +79,7 @@ export class InquiryQueryDto extends PageQueryDto {
   @ApiPropertyOptional() @IsOptional() @IsUUID() companyId?: string;
   @ApiPropertyOptional() @IsOptional() @IsDateString() from?: string;
   @ApiPropertyOptional() @IsOptional() @IsDateString() to?: string;
+  @ApiPropertyOptional({ description: 'true = only forms held as possible spam (they are left out otherwise)' }) @IsOptional() @IsIn(['true', 'false']) held?: string;
   @ApiPropertyOptional({ enum: ['newest', 'oldest', 'updated'] }) @IsOptional() @IsIn(['newest', 'oldest', 'updated']) sort?: string;
 }
 

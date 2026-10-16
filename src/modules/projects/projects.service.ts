@@ -15,6 +15,30 @@ import {
   CreateProjectDto, CreateProjectProductDto, ProjectQueryDto, UpdateProjectDto, UpdateProjectProductDto,
 } from './dto/project.dto.js';
 
+/** Pausing or cancelling a project needs a reason, kept in the activity history. */
+const REASON_REQUIRED: string[] = ['on_hold', 'cancelled'];
+const humanStatus = (s: string) => s.replace('_', ' ');
+
+const text = (v: unknown): string | undefined => {
+  const s = (Array.isArray(v) ? v.join(', ') : typeof v === 'string' ? v : '').trim();
+  return s || undefined;
+};
+/** Product-brief form answers → product-line details, so converting an inquiry needs no re-typing. */
+function detailsFromBrief(f: Record<string, unknown>): Record<string, string> {
+  const map: Record<string, unknown> = {
+    category: f.category, format: f.format, quantity: f.quantity, fillSize: f.fillSize,
+    includeIngredients: f.includeIngredients, excludeIngredients: f.avoidIngredients, texture: f.texture,
+    fragrance: [text(f.fragrance), text(f.fragranceLevel)].filter(Boolean).join(' – '), color: f.color,
+    packaging: [text(f.packaging), text(f.otherPackaging)].filter(Boolean).join(' – '),
+    market: [text(f.exportRequirements), text(f.salesCountries), text(f.country)].filter(Boolean).join(' – '), channels: f.channels,
+    launchDate: f.timing, budget: f.fillBudget,
+    references: [text(f.benchmark), text(f.benchmarkUrl), text(f.benchmarkNotes), text(f.variants)].filter(Boolean).join('\n'),
+  };
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(map)) { const s = text(v); if (s) out[k] = s.slice(0, 2000); }
+  return out;
+}
+
 /** Used when no stage template exists yet (matches the brief). */
 export const DEFAULT_STAGES: StageDefinition[] = [
   { name: 'Inquiry' },
@@ -112,6 +136,7 @@ export class ProjectsService {
     const projectId = await this.ds.transaction(async (m) => {
       const inquiry = await m.getRepository(Inquiry).findOneBy({ id: inquiryId });
       if (!inquiry) throw new NotFoundException('Inquiry not found');
+      if (inquiry.heldAt) throw new BadRequestException('This form is held as possible spam – release it first');
       const already = await m.getRepository(Project).findOneBy({ sourceInquiryId: inquiryId });
       if (already) throw new ConflictException({ message: 'This inquiry was already converted', projectId: already.id });
 
@@ -133,7 +158,11 @@ export class ProjectsService {
       });
       await this.createStages(m, project.id, dto.stageTemplateId);
 
-      const items = await m.getRepository(InquiryItem).find({ where: { inquiryId } });
+      const items: Partial<InquiryItem>[] = await m.getRepository(InquiryItem).find({ where: { inquiryId } });
+      const fields = (inquiry.payload?.fields ?? {}) as Record<string, unknown>;
+      const details = detailsFromBrief(fields);
+      // A product brief / sample request without a catalog match still becomes one product line.
+      if (!items.length && (text(fields.productName) || text(fields.format))) items.push({ catalogItemId: null, serviceId: null, quantity: null, notes: null });
       const catalog = await m.getRepository(CatalogItem).findBy({ id: In(items.map((i) => i.catalogItemId).filter(Boolean) as string[]) });
       const services = await m.getRepository(Service).findBy({ id: In(items.map((i) => i.serviceId).filter(Boolean) as string[]) });
       for (const it of items) {
@@ -141,9 +170,12 @@ export class ProjectsService {
           projectId: project.id,
           catalogItemId: it.catalogItemId,
           serviceId: it.serviceId,
-          name: catalog.find((c) => c.id === it.catalogItemId)?.name ?? services.find((s) => s.id === it.serviceId)?.title ?? 'Product',
-          targetQuantity: it.quantity,
-          notes: it.notes,
+          name: catalog.find((c) => c.id === it.catalogItemId)?.name ?? services.find((s) => s.id === it.serviceId)?.title
+            ?? text(fields.productName) ?? text(fields.format) ?? 'Product',
+          targetQuantity: it.quantity ?? null,
+          notes: it.notes ?? null,
+          // The website brief describes one product; with several lines staff fill in each one.
+          details: items.length === 1 ? details : {},
         });
         await this.createProductStages(m, product, dto.stageTemplateId);
       }
@@ -228,7 +260,19 @@ export class ProjectsService {
 
   async update(user: AuthUser, id: string, dto: UpdateProjectDto) {
     const before = await this.access.project(user, id);
-    await this.ds.getRepository(Project).update(id, dto);
+    const { statusReason, ...changes } = dto;
+    const reason = statusReason?.trim();
+    const changed = changes.status && changes.status !== before.status ? changes.status : null;
+    if (changed && REASON_REQUIRED.includes(changed) && !reason) {
+      throw new BadRequestException(`Please give a reason for setting the project to "${humanStatus(changed)}"`);
+    }
+    await this.ds.transaction(async (m) => {
+      await m.getRepository(Project).update(id, changes);
+      if (changed) {
+        const note = `Status: ${humanStatus(changed)}${reason ? ` – ${reason}` : ''}`;
+        await m.getRepository(StatusEvent).insert({ projectId: id, actorId: user.id, note });
+      }
+    });
     await this.audit.log({ actorId: user.id, action: 'project.update', entityType: 'project', entityId: id, before, after: dto });
     return this.get(user, id);
   }

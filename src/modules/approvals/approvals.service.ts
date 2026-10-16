@@ -127,6 +127,8 @@ export class ApprovalsService {
           hash: sha256(stableJson({
             id: v.id, currency: v.currency, total: v.total, validUntil: v.validUntil,
             lines: lines.map((l) => [l.description, l.quantity, l.unitPrice, l.lineTotal]),
+            // Only when set, so approvals of versions without terms keep their original fingerprint.
+            ...(Object.keys(v.terms ?? {}).length ? { terms: v.terms } : {}),
           })),
           column: 'quoteVersionId',
         };

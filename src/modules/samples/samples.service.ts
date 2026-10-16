@@ -1,6 +1,6 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { DataSource, In } from 'typeorm';
-import { Approval, Feedback, Project, Sample, SampleRevision, StatusEvent } from '../../database/entities/index.js';
+import { Approval, Feedback, Inquiry, Project, Sample, SampleRevision, StatusEvent } from '../../database/entities/index.js';
 import { AuditService } from '../audit/audit.service.js';
 import { EmailService } from '../email/email.service.js';
 import type { AuthUser } from '../../common/decorators/auth.decorators.js';
@@ -115,19 +115,70 @@ export class SamplesService {
   }
 
   async addFeedback(user: AuthUser, revisionId: string, dto: CreateFeedbackDto) {
-    const { revision } = await this.access.sampleRevision(user, revisionId);
+    const { revision, project: owner } = await this.access.sampleRevision(user, revisionId);
+    const details = Object.fromEntries(
+      Object.entries(dto.details ?? {}).map(([k, v]) => [k, typeof v === 'string' ? v.trim() : v]).filter(([, v]) => (Array.isArray(v) ? v.length : v)),
+    );
+    const comments = dto.comments?.trim() || null;
+    if (!comments && !dto.rating && !Object.keys(details).length) throw new BadRequestException('Feedback is empty');
+    const docs = details.documentIds as string[] | undefined;
+    if (docs?.length) {
+      const found = await this.ds.query(`SELECT id FROM documents WHERE id = ANY($1) AND project_id = $2`, [docs, owner.id]);
+      if (found.length !== new Set(docs).size) throw new BadRequestException('Attachments must be files of this project');
+    }
     const repo = this.ds.getRepository(Feedback);
-    const fb = await repo.save(repo.create({ sampleRevisionId: revisionId, authorId: user.id, rating: dto.rating ?? null, comments: dto.comments ?? null }));
+    const fb = await repo.save(repo.create({ sampleRevisionId: revisionId, authorId: user.id, rating: dto.rating ?? null, comments, details }));
     if (!isStaff(user)) {
       await this.ds.getRepository(Sample).update(revision.sampleId, { status: 'feedback_received' });
       const ctx = await this.revisionContext(revisionId);
       if (ctx) {
         const project = await this.ds.getRepository(Project).findOneByOrFail({ id: ctx.row.project_id });
         await this.email.notifyStaff('sample.feedback', 'sample_feedback_staff',
-          { ...ctx.data, rating: dto.rating, comments: dto.comments, customerEmail: user.email },
+          { ...ctx.data, rating: dto.rating, comments, details, customerEmail: user.email },
           { people: await this.access.ownerEmails(project), projectId: project.id });
       }
     }
+    return fb;
+  }
+
+  /**
+   * The website's sample review form arrives as an inquiry (no login). Staff attach it to the exact revision:
+   * its answers become structured feedback and its files move to the project.
+   */
+  async linkInquiry(user: AuthUser, revisionId: string, ref: string) {
+    requireStaff(user);
+    const { revision, project } = await this.access.sampleRevision(user, revisionId);
+    const isId = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(ref);
+    const inquiry = await this.ds.getRepository(Inquiry).findOneBy(isId ? { id: ref } : { referenceNo: ref.toUpperCase() });
+    if (!inquiry) throw new NotFoundException('No website form with this reference');
+    const inquiryId = inquiry.id;
+    if (inquiry.formType !== 'sample_feedback') throw new BadRequestException('Only sample feedback forms can be linked to a sample');
+    if (await this.ds.getRepository(Feedback).existsBy({ inquiryId })) throw new ConflictException('This form is already linked to a sample');
+    const f = ((inquiry.payload as { fields?: Record<string, unknown> })?.fields ?? {}) as Record<string, unknown>;
+    const t = (...keys: string[]) => keys.map((k) => (Array.isArray(f[k]) ? (f[k] as string[]).join(', ') : f[k])).filter((v) => typeof v === 'string' && v.trim()).join(' – ') || undefined;
+    const decisionText = t('decision')?.toLowerCase() ?? '';
+    const fb = await this.ds.transaction(async (m) => {
+      // The form's files move to the project, so they show under Documents next to the sample.
+      const docs: { id: string }[] = await m.query(
+        `SELECT id FROM documents WHERE inquiry_id = $2 AND (project_id IS NULL OR project_id = $1)`, [project.id, inquiryId]);
+      if (docs.length) await m.query(`UPDATE documents SET project_id = $1 WHERE id = ANY($2)`, [project.id, docs.map((d) => d.id)]);
+      const details = Object.fromEntries(Object.entries({
+        decision: decisionText.startsWith('approved') ? 'approved_next_stage' : decisionText.startsWith('request') ? 'request_changes' : undefined,
+        appearance: t('colorChanges'), texture: t('textureChanges', 'viscosityChanges'), scent: t('fragranceChanges'),
+        performance: t('performanceChanges'), packaging: t('primaryPackaging', 'secondaryPackaging', 'otherPrimary', 'otherSecondary'),
+        changes: t('changes'), documentIds: docs.length ? docs.map((d) => d.id) : undefined,
+      }).filter(([, v]) => v !== undefined));
+      const saved = await m.getRepository(Feedback).save(m.getRepository(Feedback).create({
+        sampleRevisionId: revisionId, inquiryId, authorId: null, rating: null,
+        comments: [t('observations'), t('comments'), inquiry.message].filter(Boolean).join('\n\n') || null, details,
+      }));
+      await m.getRepository(Sample).update(revision.sampleId, { status: 'feedback_received' });
+      await m.getRepository(StatusEvent).insert({
+        inquiryId, projectId: project.id, actorId: user.id, note: `Website sample review ${inquiry.referenceNo} linked to revision ${revision.revisionNo}`,
+      });
+      return saved;
+    });
+    await this.audit.log({ actorId: user.id, action: 'sample.feedback_link', entityType: 'project', entityId: project.id, after: { inquiryId, revisionId } });
     return fb;
   }
 }

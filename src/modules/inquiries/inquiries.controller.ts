@@ -101,6 +101,16 @@ export class InquiriesController {
     return this.messagesService.postInquiryMessage(u, id, dto.body, dto.askInfo ?? false);
   }
 
+  /** A form held by the spam check is real: send its e-mails and create the follow-up task. */
+  @Roles('admin', 'sales')
+  @Post(':id/release') @HttpCode(200)
+  release(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() u: AuthUser) { return this.inquiries.release(id, u.id); }
+
+  /** A form held by the spam check is spam: delete it (with its files). */
+  @Roles('admin', 'sales')
+  @Delete(':id/spam')
+  deleteSpam(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() u: AuthUser) { return this.inquiries.deleteSpam(id, u.id); }
+
   /** Convert a lead into a project without re-entering data. */
   @Roles('admin', 'sales')
   @Post(':id/convert')

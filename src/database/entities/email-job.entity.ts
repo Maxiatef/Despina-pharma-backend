@@ -30,6 +30,10 @@ export class EmailJob extends BaseEntity {
   @Column({ type: 'varchar', length: 60, nullable: true })
   template: string | null;
 
+  /** Tracking ID of the request that queued it. */
+  @Column({ name: 'request_id', type: 'varchar', length: 64, nullable: true })
+  requestId: string | null;
+
   @Column({ name: 'to_email', type: 'varchar', length: 254 })
   toEmail: string;
 

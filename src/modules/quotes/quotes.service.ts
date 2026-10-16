@@ -7,7 +7,9 @@ import type { AuthUser } from '../../common/decorators/auth.decorators.js';
 import { EmailService } from '../email/email.service.js';
 import { isStaff, ProjectAccessService, requireStaff } from '../projects/project-access.service.js';
 import { QuoteResponseDto, QuoteVersionDto } from './dto/quotes.dto.js';
-import { addBusinessHours, businessConfig } from '../../common/business-hours.js';
+import { addBusinessHours } from '../../common/business-hours.js';
+import { SettingsService } from '../settings/settings.service.js';
+import { loadBusinessConfig } from '../settings/work-rules.js';
 
 const cents = (n: number) => Math.round(n * 100) / 100;
 
@@ -18,6 +20,7 @@ export class QuotesService {
     private readonly access: ProjectAccessService,
     private readonly audit: AuditService,
     private readonly email: EmailService,
+    private readonly settings: SettingsService,
   ) {}
   async listQuotes(user: AuthUser, projectId: string) {
     await this.access.project(user, projectId);
@@ -40,6 +43,11 @@ export class QuotesService {
     return this.getQuote(user, quoteId);
   }
 
+  /** Blank terms are dropped, so an empty term never shows on the quote. */
+  private static cleanTerms(t?: Record<string, string | undefined>) {
+    return Object.fromEntries(Object.entries(t ?? {}).map(([k, v]) => [k, v?.trim()]).filter(([, v]) => v));
+  }
+
   private async writeQuoteVersion(m: EntityManager, quoteId: string, versionNo: number, dto: QuoteVersionDto) {
     const lines = dto.lines.map((l, i) => ({ ...l, lineTotal: cents(l.quantity * l.unitPrice), sortOrder: i }));
     const total = cents(lines.reduce((s, l) => s + l.lineTotal, 0));
@@ -47,6 +55,7 @@ export class QuotesService {
       m.getRepository(QuoteVersion).create({
         quoteId, versionNo, currency: (dto.currency ?? 'USD').toUpperCase(), total: total.toFixed(2),
         validUntil: dto.validUntil ?? null, documentVersionId: dto.documentVersionId ?? null,
+        terms: QuotesService.cleanTerms({ ...dto.terms }),
       }),
     );
     await m.getRepository(QuoteLine).insert(
@@ -121,7 +130,7 @@ export class QuotesService {
     const declined = dto.decision === 'declined';
     const note = dto.note?.trim() || null;
     const label = declined ? 'declined' : 'asked for changes to';
-    const cfg = businessConfig();
+    const cfg = await loadBusinessConfig(this.settings);
     await this.ds.transaction(async (m) => {
       await m.getRepository(QuoteResponse).insert({ quoteId, quoteVersionId: latest.id, decision: dto.decision, note, respondedBy: user.id });
       await m.getRepository(Quote).update(quoteId, { status: declined ? 'rejected' : 'changes_requested' });

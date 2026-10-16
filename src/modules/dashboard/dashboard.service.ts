@@ -17,8 +17,9 @@ export class DashboardService {
           count(*) FILTER (WHERE status = 'won')::int AS won,
           count(*) FILTER (WHERE status = 'lost')::int AS lost,
           count(*) FILTER (WHERE status NOT IN ('won','lost','closed','not_a_fit')
-            AND NOT EXISTS (SELECT 1 FROM assignments a WHERE a.inquiry_id = inquiries.id AND a.unassigned_at IS NULL))::int AS unassigned
-        FROM inquiries`),
+            AND NOT EXISTS (SELECT 1 FROM assignments a WHERE a.inquiry_id = inquiries.id AND a.unassigned_at IS NULL))::int AS unassigned,
+          (SELECT count(*)::int FROM inquiries h WHERE h.held_at IS NOT NULL) AS held
+        FROM inquiries WHERE held_at IS NULL`),
       this.ds.query(
         `SELECT
            (SELECT count(*)::int FROM tasks WHERE assignee_id = $1 AND completed_at IS NULL) AS open_tasks,
@@ -37,10 +38,10 @@ export class DashboardService {
       this.ds.query(`
         SELECT i.id, i.reference_no, i.form_type, i.status, i.created_at, c.first_name, c.last_name, co.name AS company
         FROM inquiries i JOIN contacts c ON c.id = i.contact_id LEFT JOIN companies co ON co.id = i.company_id
-        ORDER BY i.created_at DESC LIMIT 10`),
+        WHERE i.held_at IS NULL ORDER BY i.created_at DESC LIMIT 10`),
       this.ds.query(`
         SELECT form_type, count(*)::int AS count FROM inquiries
-        WHERE created_at > now() - interval '30 days' GROUP BY form_type ORDER BY count DESC`),
+        WHERE created_at > now() - interval '30 days' AND held_at IS NULL GROUP BY form_type ORDER BY count DESC`),
       this.ds.query(
         `SELECT t.id, t.title, t.priority, t.due_at, t.inquiry_id, t.project_id, t.assignee_id, u.email AS assignee_email,
                 i.reference_no, p.code AS project_code
@@ -66,7 +67,7 @@ export class DashboardService {
   leadsPerWeek(weeks = 12) {
     return this.ds.query(
       `SELECT to_char(date_trunc('week', g), 'YYYY-MM-DD') AS week,
-              (SELECT count(*)::int FROM inquiries WHERE date_trunc('week', created_at) = date_trunc('week', g)) AS count
+              (SELECT count(*)::int FROM inquiries WHERE held_at IS NULL AND date_trunc('week', created_at) = date_trunc('week', g)) AS count
        FROM generate_series(now() - ($1 || ' weeks')::interval, now(), interval '1 week') g
        ORDER BY week`,
       [String(weeks)],

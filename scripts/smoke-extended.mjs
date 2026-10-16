@@ -283,7 +283,7 @@ async function run() {
   const pid = proj.body.id;
   check('customer sees the project in the list', (await call('GET', '/projects', { token: cust.token })).body?.items?.some((p) => p.id === pid));
   check('filter projects by company', (await call('GET', `/projects?companyId=${co.body.id}`, { token: admin })).body?.total === 1);
-  check('put project on hold', (await call('PATCH', `/projects/${pid}`, { token: admin, body: { status: 'on_hold' } })).body?.status === 'on_hold');
+  check('put project on hold', (await call('PATCH', `/projects/${pid}`, { token: admin, body: { status: 'on_hold', statusReason: 'Smoke test pause' } })).body?.status === 'on_hold');
   check('customer cannot edit project', (await call('PATCH', `/projects/${pid}`, { token: cust.token, body: { name: 'hacked' } })).status === 403);
   await call('PATCH', `/projects/${pid}`, { token: admin, body: { status: 'active' } });
   const line = await call('POST', `/projects/${pid}/products`, { token: cust.token, body: { name: 'Body lotion 250 ml', targetQuantity: 3000, notes: 'not sure yet about scent' } });

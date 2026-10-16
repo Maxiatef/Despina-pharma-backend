@@ -1,6 +1,8 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
+import { StorageService } from '../documents/storage/storage.service.js';
 import { InjectRepository } from '@nestjs/typeorm';
-import { QueryFailedError, Repository } from 'typeorm';
+import { QueryFailedError, Raw, Repository } from 'typeorm';
 import { CatalogCategory, CatalogItem, CatalogSource, Redirect } from '../../database/entities/index.js';
 import { AuditService } from '../audit/audit.service.js';
 import { paged } from '../../common/utils.js';
@@ -18,6 +20,7 @@ export class CatalogService {
     @InjectRepository(CatalogSource) private readonly sources: Repository<CatalogSource>,
     @InjectRepository(Redirect) private readonly redirects: Repository<Redirect>,
     private readonly audit: AuditService,
+    private readonly storage: StorageService,
   ) {}
 
   private async save<T extends object>(repo: Repository<T>, entity: T) {
@@ -166,5 +169,46 @@ export class CatalogService {
     }
     await this.audit.log({ actorId, action: 'catalog_item.update', entityType: 'catalog_item', entityId: id, before: snapshot, after });
     return after;
+  }
+
+  // ---------- website overlay + images (#26, #27) ----------
+  /** Items staff have edited (or unpublished) since the import: the website overlays these on its generated pages. */
+  async changedItems() {
+    const rows = await this.items.find({
+      where: [{ updatedAt: Raw((a) => `${a} > "CatalogItem"."created_at" + interval '1 second'`) }, { isPublished: false }],
+      select: { id: true, categoryId: true, slug: true, name: true, notes: true, imageUrl: true, seoTitle: true, seoDescription: true, isPublished: true, updatedAt: true },
+    });
+    const cats = new Map((await this.categories.find({ select: { id: true, slug: true } })).map((c) => [c.id, c.slug]));
+    return rows.map(({ categoryId, ...r }) => ({ ...r, path: `/formulations/${cats.get(categoryId)}/${r.slug}/` }));
+  }
+
+  private static readonly IMAGE_TYPES: [string, string, (b: Buffer) => boolean][] = [
+    ['image/png', 'png', (b) => b.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))],
+    ['image/jpeg', 'jpg', (b) => b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff],
+    ['image/webp', 'webp', (b) => b.subarray(0, 4).toString('latin1') === 'RIFF' && b.subarray(8, 12).toString('latin1') === 'WEBP'],
+  ];
+
+  async setImage(id: string, data: Buffer, contentType: string, actorId: string) {
+    const item = await this.items.findOneBy({ id });
+    if (!item) throw new NotFoundException('Catalog item not found');
+    if (!data.length) throw new BadRequestException('The image is empty');
+    if (data.length > 5 * 1024 * 1024) throw new BadRequestException('Images can be up to 5 MB');
+    // Trust the bytes, not the header: the file must really be a PNG, JPEG or WebP.
+    const type = CatalogService.IMAGE_TYPES.find(([mime, , sniff]) => mime === contentType && sniff(data));
+    if (!type) throw new BadRequestException('Use a PNG, JPEG or WebP image');
+    const file = `${randomUUID()}.${type[1]}`;
+    await this.storage.put(`catalog-images/${id}/${file}`, data);
+    const before = item.imageUrl;
+    await this.items.update(id, { imageUrl: `/api/public/catalog/images/${id}/${file}` });
+    await this.audit.log({ actorId, action: 'catalog.item_image', entityType: 'catalog_item', entityId: id, before: { imageUrl: before }, after: { file, bytes: data.length } });
+    return this.getItem(id, true);
+  }
+
+  async readImage(itemId: string, file: string) {
+    const m = file.match(/^[0-9a-f-]{36}\.(png|jpg|webp)$/);
+    const key = `catalog-images/${itemId}/${file}`;
+    if (!m || !(await this.storage.exists(key))) throw new NotFoundException('Image not found');
+    const contentType = CatalogService.IMAGE_TYPES.find(([, ext]) => ext === m[1])![0];
+    return { stream: this.storage.read(key), contentType };
   }
 }

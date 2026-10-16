@@ -1,6 +1,7 @@
 import { ArgumentsHost, Catch, ExceptionFilter, HttpStatus, Logger } from '@nestjs/common';
 import type { Response } from 'express';
 import { EntityNotFoundError, QueryFailedError } from 'typeorm';
+import { currentRequestId } from '../request-context.js';
 
 /**
  * Turns database errors into clean HTTP answers instead of 500s:
@@ -29,7 +30,8 @@ export class DatabaseExceptionFilter implements ExceptionFilter {
     if (hit) {
       return res.status(hit[0]).json({ statusCode: hit[0], error: hit[1], message: hit[2], constraint: err.constraint });
     }
-    this.logger.error(exception.message, exception.stack);
-    return res.status(500).json({ statusCode: 500, error: 'Internal Server Error', message: 'Unexpected database error' });
+    const requestId = currentRequestId();
+    this.logger.error(`${requestId ? `[${requestId}] ` : ''}${exception.message}`, exception.stack);
+    return res.status(500).json({ statusCode: 500, error: 'Internal Server Error', message: 'Unexpected database error', requestId });
   }
 }

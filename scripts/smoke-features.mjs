@@ -170,6 +170,32 @@ async function run() {
   const fresh = (await call('GET', `/projects/${project.id}`, { token: admin })).body.products?.find((p) => p.id === added.body.id);
   check('a product added later gets its own stages', added.status === 201 && fresh?.stages?.length === 11, fresh?.stages?.length);
 
+  section('#22 Product-line details + #24 reason for On hold / Cancelled (2026-10-14)');
+  const brief = await call('POST', '/inquiries', { body: form('new_product', { payload: { form: 'product', fields: {
+    productName: `Smoke Serum ${RUN}`, format: 'Serum', fillSize: '30 ml', quantity: '5,000', avoidIngredients: 'Parabens', timing: 'Spring 2027',
+  } } }) });
+  const conv2 = await call('POST', `/inquiries/${brief.body.id}/convert`, { token: admin, body: {} });
+  const line = conv2.body.products?.[0];
+  check('brief without catalog match → one product line named after the product', conv2.status === 201 && conv2.body.products?.length === 1 && line?.name === `Smoke Serum ${RUN}`, conv2.body.products);
+  check('brief answers copied into the line details', line?.details?.format === 'Serum' && line.details.fillSize === '30 ml' && line.details.excludeIngredients === 'Parabens' && line.details.launchDate === 'Spring 2027', line?.details);
+  const det = await call('PATCH', `/project-products/${line.id}`, { token: admin, body: { details: { format: 'Serum', path: 'private_label', channels: 'Amazon', notSure: ['budget', 'fragrance'] } } });
+  check('save details with "not sure yet" fields', det.status === 200 && det.body.details?.path === 'private_label' && det.body.details?.notSure?.length === 2, det.body);
+  const badPath = await call('PATCH', `/project-products/${line.id}`, { token: admin, body: { details: { path: 'cheap' } } });
+  check('unknown development path → 400', badPath.status === 400, badPath.body);
+  const badUnsure = await call('PATCH', `/project-products/${line.id}`, { token: admin, body: { details: { notSure: ['password'] } } });
+  check('unknown "not sure" field → 400', badUnsure.status === 400, badUnsure.body);
+  const p2 = conv2.body.id;
+  const noReason = await call('PATCH', `/projects/${p2}`, { token: admin, body: { status: 'on_hold' } });
+  check('On hold without a reason → 400', noReason.status === 400, noReason.body);
+  const blank = await call('PATCH', `/projects/${p2}`, { token: admin, body: { status: 'cancelled', statusReason: '   ' } });
+  check('Cancelled with a blank reason → 400', blank.status === 400, blank.body);
+  const held = await call('PATCH', `/projects/${p2}`, { token: admin, body: { status: 'on_hold', statusReason: 'Waiting for artwork' } });
+  check('On hold with a reason → 200', held.status === 200 && held.body.status === 'on_hold', held.body);
+  const resumed = await call('PATCH', `/projects/${p2}`, { token: admin, body: { status: 'active' } });
+  check('back to Active needs no reason', resumed.status === 200 && resumed.body.status === 'active', resumed.body);
+  const history = (await call('GET', `/projects/${p2}/timeline`, { token: admin })).body;
+  check('reason is in the project history', history.some?.((e) => e.note === 'Status: on hold – Waiting for artwork') && history.some?.((e) => e.note === 'Status: active'), history.map?.((e) => e.note));
+
   section('#35 Customer declines a quote or requests changes');
   const inv = await call('POST', '/users/invite', { token: admin, body: { email: `buyer.${RUN}@${DOMAIN}`, role: 'customer', companyId: project.companyId } });
   const pass = `Smoke-${RUN}-Passw0rd!`;

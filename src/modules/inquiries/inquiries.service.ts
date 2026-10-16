@@ -10,10 +10,15 @@ import { EmailService } from '../email/email.service.js';
 import { STAFF_ROLES } from '../../common/enums.js';
 import type { FormType, InquiryStatus, InquiryType } from '../../common/enums.js';
 import { csvCell, paged } from '../../common/utils.js';
-import { addBusinessHours, businessConfig } from '../../common/business-hours.js';
+import { addBusinessHours } from '../../common/business-hours.js';
+import { SettingsService } from '../settings/settings.service.js';
+import { leadRule, loadBusinessConfig } from '../settings/work-rules.js';
 import type { StaffNotificationKey } from '../email/email-settings.js';
 import { verifyUploadToken } from '../documents/upload-token.js';
 import { maxFiles } from '../documents/documents.service.js';
+import { StorageService } from '../documents/storage/storage.service.js';
+import { currentRequestId } from '../../common/request-context.js';
+import { spamReasons } from './spam-check.js';
 import { InquiryQueryDto, SubmitInquiryDto } from './dto/inquiry.dto.js';
 
 const FORM_LABELS: Record<FormType, string> = {
@@ -47,6 +52,8 @@ export class InquiriesService {
     @InjectRepository(User) private readonly users: Repository<User>,
     private readonly audit: AuditService,
     private readonly email: EmailService,
+    private readonly settings: SettingsService,
+    private readonly storage: StorageService,
   ) {}
 
   // =====================================================================
@@ -61,10 +68,11 @@ export class InquiriesService {
     const existing = await this.inquiries.findOneBy({ idempotencyKey: dto.idempotencyKey });
     if (existing) return { id: existing.id, referenceNo: existing.referenceNo, status: existing.status, duplicate: true };
 
+    const held = this.spamCheck(dto);
     try {
       return await this.ds.transaction(async (m) => {
         const company = dto.company ? await this.upsertCompany(m, dto.company) : null;
-        const contact = await this.upsertContact(m, dto.contact, company?.id ?? null);
+        const contact = await this.upsertContact(m, dto.contact, company?.id ?? null, held.length > 0);
 
         const [{ seq }] = await m.query(`SELECT nextval('inquiry_reference_seq')::int AS seq`);
         const referenceNo = `DP-INQ-${new Date().getFullYear()}-${String(seq).padStart(6, '0')}`;
@@ -83,6 +91,9 @@ export class InquiriesService {
             idempotencyKey: dto.idempotencyKey,
             ip: meta.ip,
             userAgent: meta.userAgent,
+            heldAt: held.length ? new Date() : null,
+            holdReasons: held.length ? held : null,
+            requestId: currentRequestId(),
           }),
         );
 
@@ -102,37 +113,16 @@ export class InquiriesService {
         }
 
         await m.getRepository(StatusEvent).insert({ inquiryId: inquiry.id, fromStatus: null, toStatus: 'new', note: 'Submitted from website' });
-        const followUp = await this.createFollowUp(m, inquiry, dto);
+        if (held.length) {
+          await m.getRepository(StatusEvent).insert({ inquiryId: inquiry.id, note: `Held for review (possible spam): ${held.join('; ')}` });
+          // The same answer as a normal form, so a bot learns nothing; nothing is e-mailed.
+          return { id: inquiry.id, referenceNo, status: inquiry.status, duplicate: false, confirmationEmail: false };
+        }
 
-        // Two separate e-mails: a notice to the team (recipients per form type in Settings → Emails) and a
-        // confirmation to the visitor. Both are switchable in Settings; they are sent right after this request.
-        const labels = (dto.payload?.labels ?? {}) as Record<string, string>;
-        const fields = (dto.payload?.fields ?? {}) as Record<string, string | string[]>;
-        const answers = Object.entries(fields)
-          .filter(([k]) => !['name', 'email', 'company', 'message', 'phone'].includes(k))
-          .slice(0, 20)
-          .map(([k, v]) => [labels[k] ?? k, (Array.isArray(v) ? v.join(', ') : String(v)).slice(0, 300)]);
-        const data = {
-          inquiryId: inquiry.id,
-          referenceNo,
-          formType: dto.formType,
-          inquiryType: dto.inquiryType ? INQUIRY_TYPE_LABELS[dto.inquiryType] : undefined,
-          followUpDue: followUp.dueAt?.toISOString(),
-          contactName: [contact.firstName, contact.lastName].filter(Boolean).join(' '),
-          contactEmail: contact.email,
-          companyName: company?.name,
-          sourcePage: dto.sourcePage,
-          message: dto.message,
-          phone: contact.phone,
-          items: items.map((i) => i.label),
-          answers,
-          assignedTo: followUp.assigneeEmail,
-          receivedAt: inquiry.createdAt,
-        };
-        const notifyKey = NOTIFY_KEY[dto.formType];
-        await this.email.notifyStaff(notifyKey, 'owner_notice', data, { inquiryId: inquiry.id, manager: m });
-        const ack = await this.email.toCustomer('inquiry_ack', contact.email, 'customer_ack', data, { inquiryId: inquiry.id, manager: m });
-
+        const ack = await this.dispatch(m, inquiry, contact, company, {
+          formType: dto.formType, inquiryType: dto.inquiryType, payload: dto.payload, message: dto.message, sourcePage: dto.sourcePage,
+          itemLabels: items.map((i) => i.label), attachments: dto.uploads?.length ?? 0,
+        });
         // Tells the website whether a confirmation e-mail is really on its way.
         const confirmationEmail = !!ack && ack.status === 'queued' && (await this.email.customerEmailOn('inquiry_ack'));
         return { id: inquiry.id, referenceNo, status: inquiry.status, duplicate: false, confirmationEmail };
@@ -147,12 +137,131 @@ export class InquiriesService {
     }
   }
 
+  /** Reasons to hold this form for review (empty = looks fine). See spam-check.ts. */
+  private spamCheck(dto: SubmitInquiryDto) {
+    const fields = (dto.payload?.fields ?? {}) as Record<string, unknown>;
+    const fieldTexts = Object.entries(fields)
+      .filter(([k]) => !/website|link|benchmark|reference|url/i.test(k))
+      .flatMap(([, v]) => (Array.isArray(v) ? v : [v]))
+      .filter((v): v is string => typeof v === 'string');
+    return spamReasons({
+      name: [dto.contact.firstName, dto.contact.lastName].filter(Boolean).join(' '), email: dto.contact.email, company: dto.company?.name,
+      message: dto.message, fieldTexts, elapsedMs: dto.elapsedMs,
+    });
+  }
+
   /**
-   * Every new inquiry gets a follow-up task in the dashboard, due after FOLLOW_UP_BUSINESS_HOURS business hours.
-   * Optional rule: AUTO_ASSIGN_<FORM_TYPE> (or AUTO_ASSIGN_DEFAULT) = a staff email → the lead and the task go to that person.
+   * The team notice, the visitor's confirmation and the follow-up task. Runs when a form arrives,
+   * or later when staff release a form the spam check held.
    */
-  private async createFollowUp(m: EntityManager, inquiry: Inquiry, dto: SubmitInquiryDto) {
-    const assigneeEmail = (process.env[`AUTO_ASSIGN_${dto.formType.toUpperCase()}`] || process.env.AUTO_ASSIGN_DEFAULT || '').trim();
+  private async dispatch(m: EntityManager, inquiry: Inquiry, contact: Contact, company: Company | null, src: {
+    formType: FormType; inquiryType?: InquiryType | null; payload?: Record<string, unknown>; message?: string | null;
+    sourcePage?: string | null; itemLabels: string[]; attachments: number;
+  }) {
+    const referenceNo = inquiry.referenceNo;
+    const followUp = await this.createFollowUp(m, inquiry, src.formType, src.inquiryType ?? undefined);
+
+    // Two separate e-mails: a notice to the team (recipients per form type in Settings → Emails) and a
+    // confirmation to the visitor. Both are switchable in Settings; they are sent right after this request.
+    const labels = (src.payload?.labels ?? {}) as Record<string, string>;
+    const fields = (src.payload?.fields ?? {}) as Record<string, string | string[]>;
+    const one = (k: string) => { const v = fields[k]; return (Array.isArray(v) ? v.join(', ') : v)?.toString().trim() || undefined; };
+    // Shown as their own rows in the team e-mail, so they are left out of the answer list.
+    const headline = ['productName', 'format', 'category', 'service', 'quantity', 'fillSize', 'timing', 'fillBudget', 'attachment', 'attachments'];
+    const answers = Object.entries(fields)
+      .filter(([k]) => !['name', 'email', 'company', 'message', 'phone', ...headline].includes(k))
+      .slice(0, 20)
+      .map(([k, v]) => [labels[k] ?? k, (Array.isArray(v) ? v.join(', ') : String(v)).slice(0, 300)]);
+    const data = {
+      inquiryId: inquiry.id,
+      referenceNo,
+      formType: src.formType,
+      inquiryType: src.inquiryType ? INQUIRY_TYPE_LABELS[src.inquiryType] : undefined,
+      followUpDue: followUp.dueAt?.toISOString(),
+      contactName: [contact.firstName, contact.lastName].filter(Boolean).join(' '),
+      contactEmail: contact.email,
+      companyName: company?.name,
+      sourcePage: src.sourcePage ?? undefined,
+      message: src.message ?? undefined,
+      phone: contact.phone,
+      items: src.itemLabels.length ? src.itemLabels
+        : [[one('productName') ?? one('format'), one('category')].filter(Boolean).join(' – '), one('service')].filter(Boolean),
+      quantity: [one('quantity'), one('fillSize')].filter(Boolean).join(' · ') || undefined,
+      timing: one('timing'),
+      budget: one('fillBudget'),
+      attachments: src.attachments || undefined,
+      answers,
+      assignedTo: followUp.assigneeEmail,
+      receivedAt: inquiry.createdAt,
+    };
+    await this.email.notifyStaff(NOTIFY_KEY[src.formType], 'owner_notice', data, { inquiryId: inquiry.id, manager: m });
+    return this.email.toCustomer('inquiry_ack', contact.email, 'customer_ack', data, { inquiryId: inquiry.id, manager: m });
+  }
+
+  /** Staff checked a held form and it is real: send the e-mails and make the follow-up task now. */
+  async release(id: string, actorId: string) {
+    const inquiry = await this.inquiries.findOneBy({ id });
+    if (!inquiry) throw new NotFoundException('Inquiry not found');
+    if (!inquiry.heldAt) throw new BadRequestException('This form is not held for review');
+    await this.ds.transaction(async (m) => {
+      const contact = await m.getRepository(Contact).findOneByOrFail({ id: inquiry.contactId });
+      const company = inquiry.companyId ? await m.getRepository(Company).findOneBy({ id: inquiry.companyId }) : null;
+      const rows: { label: string }[] = await m.query(
+        `SELECT concat_ws(' – ', ci.name, s.title, ii.notes, CASE WHEN ii.quantity IS NOT NULL THEN to_char(ii.quantity, 'FM999,999,999') || ' units' END) AS label
+         FROM inquiry_items ii LEFT JOIN catalog_items ci ON ci.id = ii.catalog_item_id LEFT JOIN services s ON s.id = ii.service_id
+         WHERE ii.inquiry_id = $1 ORDER BY ii.created_at`, [id]);
+      const attachments = await m.getRepository(Document).countBy({ inquiryId: id });
+      await m.getRepository(Inquiry).update(id, { heldAt: null });
+      await m.getRepository(StatusEvent).insert({ inquiryId: id, actorId, note: 'Not spam: released from review – e-mails sent and follow-up task created' });
+      await this.dispatch(m, inquiry, contact, company, {
+        formType: inquiry.formType, inquiryType: inquiry.inquiryType as InquiryType | null, payload: inquiry.payload, message: inquiry.message,
+        sourcePage: inquiry.sourcePage, itemLabels: rows.map((r) => r.label), attachments,
+      });
+      await this.audit.log({ actorId, action: 'inquiry.release', entityType: 'inquiry', entityId: id, before: { holdReasons: inquiry.holdReasons } }, m);
+    });
+    return this.inquiries.findOneByOrFail({ id });
+  }
+
+  /**
+   * Staff confirmed a held form is spam: delete it with its files, and the contact / company it created
+   * when nothing else uses them.
+   */
+  async deleteSpam(id: string, actorId: string) {
+    const inquiry = await this.inquiries.findOneBy({ id });
+    if (!inquiry) throw new NotFoundException('Inquiry not found');
+    if (!inquiry.heldAt) throw new BadRequestException('Only forms held for review can be deleted as spam');
+    const files: { storage_key: string }[] = await this.ds.query(
+      `SELECT dv.storage_key FROM document_versions dv JOIN documents d ON d.id = dv.document_id WHERE d.inquiry_id = $1`, [id]);
+    await this.ds.transaction(async (m) => {
+      await m.query(`DELETE FROM documents WHERE inquiry_id = $1`, [id]);
+      await m.getRepository(Inquiry).delete(id);
+      await m.query(
+        `DELETE FROM contacts c WHERE c.id = $1 AND NOT EXISTS (SELECT 1 FROM inquiries i WHERE i.contact_id = c.id)
+           AND NOT EXISTS (SELECT 1 FROM users u WHERE u.contact_id = c.id)`, [inquiry.contactId]);
+      if (inquiry.companyId) {
+        await m.query(
+          `DELETE FROM companies co WHERE co.id = $1 AND NOT EXISTS (SELECT 1 FROM inquiries i WHERE i.company_id = co.id)
+             AND NOT EXISTS (SELECT 1 FROM contacts c WHERE c.company_id = co.id) AND NOT EXISTS (SELECT 1 FROM projects p WHERE p.company_id = co.id)
+             AND NOT EXISTS (SELECT 1 FROM company_memberships cm WHERE cm.company_id = co.id)`, [inquiry.companyId]);
+      }
+      await this.audit.log({ actorId, action: 'inquiry.delete_spam', entityType: 'inquiry', entityId: id,
+        before: { referenceNo: inquiry.referenceNo, holdReasons: inquiry.holdReasons } }, m);
+    });
+    for (const f of files) await this.storage.remove(f.storage_key);
+    return { ok: true };
+  }
+
+  /** Held forms are not worked on until staff release them. */
+  private notHeld(inquiry: Inquiry) {
+    if (inquiry.heldAt) throw new BadRequestException('This form is held as possible spam – release it first');
+  }
+
+  /**
+   * Every new inquiry gets a follow-up task in the dashboard, due after the response target (Admin → Settings → Rules, .env fallback).
+   * Assignment rule per form type (Settings → Rules, or AUTO_ASSIGN_<FORM_TYPE> / AUTO_ASSIGN_DEFAULT) → the lead and the task go to that person.
+   */
+  private async createFollowUp(m: EntityManager, inquiry: Inquiry, formType: FormType, inquiryType?: InquiryType) {
+    const { assigneeEmail, priority } = await leadRule(this.settings, formType);
     const found = assigneeEmail
       ? await m.getRepository(User).createQueryBuilder('u').where('lower(u.email) = lower(:e) AND u.isActive', { e: assigneeEmail }).getOne()
       : null;
@@ -162,14 +271,14 @@ export class InquiriesService {
       await m.getRepository(Inquiry).update(inquiry.id, { status: 'assigned' });
       await m.getRepository(StatusEvent).insert({ inquiryId: inquiry.id, fromStatus: 'new', toStatus: 'assigned', note: `Automatically assigned to ${assignee.email}` });
     }
-    const topic = [FORM_LABELS[dto.formType], dto.inquiryType && INQUIRY_TYPE_LABELS[dto.inquiryType]].filter(Boolean).join(' – ');
-    const cfg = businessConfig();
+    const topic = [FORM_LABELS[formType], inquiryType && INQUIRY_TYPE_LABELS[inquiryType]].filter(Boolean).join(' – ');
+    const cfg = await loadBusinessConfig(this.settings);
     const task = await m.getRepository(Task).save(
       m.getRepository(Task).create({
         inquiryId: inquiry.id,
         assigneeId: assignee?.id ?? null,
         title: `Follow up ${inquiry.referenceNo} (${topic})`.slice(0, 300),
-        priority: dto.formType === 'sample_feedback' || dto.formType === 'sample_request' ? 'high' : 'normal',
+        priority,
         dueAt: addBusinessHours(new Date(), cfg.followUpHours, cfg),
       }),
     );
@@ -191,11 +300,13 @@ export class InquiriesService {
     return repo.save(repo.create({ ...input, name: input.name.trim() }));
   }
 
-  private async upsertContact(m: EntityManager, input: SubmitInquiryDto['contact'], companyId: string | null) {
+  private async upsertContact(m: EntityManager, input: SubmitInquiryDto['contact'], companyId: string | null, held = false) {
     const repo = m.getRepository(Contact);
     const qb = repo.createQueryBuilder('c').where('lower(c.email) = lower(:email)', { email: input.email });
     if (companyId) qb.andWhere('(c.company_id = :companyId OR c.company_id IS NULL)', { companyId });
     const found = await qb.orderBy('c.updatedAt', 'DESC').getOne();
+    // A held (possible spam) form must not change a real contact's details.
+    if (found && held) return found;
     if (found) {
       await repo.update(found.id, {
         firstName: input.firstName,
@@ -234,7 +345,8 @@ export class InquiriesService {
         quantity: it.quantity ?? null,
         notes: it.notes ?? null,
       });
-      saved.push({ label: [catalogItem?.name, service?.title, it.notes].filter(Boolean).join(' – ') });
+      const qty = it.quantity ? `${it.quantity.toLocaleString('en-US')} units` : null;
+      saved.push({ label: [catalogItem?.name, service?.title, it.notes, qty].filter(Boolean).join(' – ') });
     }
     return saved;
   }
@@ -268,6 +380,8 @@ export class InquiriesService {
 
     const statuses = q.status ? (Array.isArray(q.status) ? q.status : [q.status]) : [];
     if (statuses.length) qb.andWhere('i.status IN (:...statuses)', { statuses });
+    // Forms held by the spam check only show in their own list.
+    qb.andWhere(q.held === 'true' ? 'i.heldAt IS NOT NULL' : 'i.heldAt IS NULL');
     if (q.formType) qb.andWhere('i.formType = :formType', { formType: q.formType });
     if (q.inquiryType) qb.andWhere('i.inquiryType = :inquiryType', { inquiryType: q.inquiryType });
     if (q.companyId) qb.andWhere('i.companyId = :companyId', { companyId: q.companyId });
@@ -326,6 +440,7 @@ export class InquiriesService {
   async summary() {
     const [row] = await this.ds.query(`
       SELECT
+        (SELECT count(*)::int FROM inquiries h WHERE h.held_at IS NOT NULL) AS held,
         count(*) FILTER (WHERE i.status = 'new')::int AS new,
         count(*) FILTER (WHERE NOT EXISTS (SELECT 1 FROM assignments a WHERE a.inquiry_id = i.id AND a.unassigned_at IS NULL)
                            AND i.status NOT IN ('won','lost','closed','not_a_fit'))::int AS unassigned,
@@ -337,7 +452,7 @@ export class InquiriesService {
         count(*) FILTER (WHERE i.status = 'won')::int AS won,
         count(*) FILTER (WHERE i.status = 'lost')::int AS lost,
         count(*)::int AS total
-      FROM inquiries i`);
+      FROM inquiries i WHERE i.held_at IS NULL`);
     return row;
   }
 
@@ -395,6 +510,7 @@ export class InquiriesService {
   async changeStatus(id: string, status: InquiryStatus, note: string | undefined, actorId: string) {
     const inquiry = await this.inquiries.findOneBy({ id });
     if (!inquiry) throw new NotFoundException('Inquiry not found');
+    this.notHeld(inquiry);
     if (inquiry.status === status && !note) return inquiry;
     await this.ds.transaction(async (m) => {
       await m.getRepository(Inquiry).update(id, { status });
@@ -413,6 +529,7 @@ export class InquiriesService {
   async assign(id: string, userId: string, actorId: string) {
     const inquiry = await this.inquiries.findOneBy({ id });
     if (!inquiry) throw new NotFoundException('Inquiry not found');
+    this.notHeld(inquiry);
     const user = await this.users.findOneBy({ id: userId, isActive: true });
     if (!user || !STAFF_ROLES.includes(user.role)) throw new ForbiddenException('Leads can only be assigned to active staff');
 
