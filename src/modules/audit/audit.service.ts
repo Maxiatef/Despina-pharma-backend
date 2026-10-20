@@ -46,4 +46,12 @@ export class AuditService {
   write(row: Partial<AuditEvent>) {
     return this.repo.save(this.repo.create(row));
   }
+
+  /** Deletes activity-log rows older than AUDIT_RETENTION_DAYS (default 365; 0 = keep forever). */
+  async purgeOld() {
+    const days = Number(process.env.AUDIT_RETENTION_DAYS ?? 365);
+    if (!Number.isFinite(days) || days <= 0) return 0;
+    const res = await this.repo.createQueryBuilder().delete().where(`created_at < now() - make_interval(days => :days)`, { days: Math.floor(days) }).execute();
+    return res.affected ?? 0;
+  }
 }

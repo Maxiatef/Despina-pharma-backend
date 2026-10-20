@@ -7,6 +7,7 @@ import { TasksService } from '../tasks/tasks.service.js';
 import { RateLimitService } from '../rate-limit/rate-limit.service.js';
 import { AuthService } from '../auth/auth.service.js';
 import { RemindersService } from '../reminders/reminders.service.js';
+import { AuditService } from '../audit/audit.service.js';
 
 /**
  * Scheduled jobs for serverless hosting (Vercel Cron, see vercel.json).
@@ -24,6 +25,7 @@ export class CronController {
     private readonly rateLimit: RateLimitService,
     private readonly auth: AuthService,
     private readonly reminders: RemindersService,
+    private readonly audit: AuditService,
   ) {}
 
   private check(authorization?: string) {
@@ -43,6 +45,7 @@ export class CronController {
     const reminders = await this.reminders.run();
     await this.rateLimit.cleanup();
     await this.auth.purgeExpiredSessions();
+    await this.audit.purgeOld();
     this.logger.log(`cron run: overdue digests ${digest.sent}, reminders ${reminders.customerReminders}, waiting lists ${reminders.staffDigests}`);
     return { ok: true, overdueDigests: digest.sent, ...reminders };
   }
