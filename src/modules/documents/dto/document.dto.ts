@@ -36,4 +36,6 @@ export class ScanDto {
 export class SignedQueryDto {
   @IsString() exp: string;
   @IsString() sig: string;
+  /** "1" = show in the browser (images and PDFs only); anything else downloads. */
+  @IsOptional() @IsIn(['1']) inline?: string;
 }

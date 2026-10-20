@@ -46,9 +46,16 @@ export class UsersService {
 
   /** Accounts are invite-only: the user is created without a password and receives a set-password link. */
   async invite(dto: InviteUserDto, actorId: string) {
-    if (await this.auth.findUserByEmail(dto.email)) throw new ConflictException('A user with this email already exists');
     if (dto.role === 'customer' && !dto.companyId) throw new BadRequestException('Customers must be invited into a company');
     if (dto.companyId && !(await this.companies.existsBy({ id: dto.companyId }))) throw new BadRequestException('Company not found');
+    const existing = await this.auth.findUserByEmail(dto.email);
+    // An existing customer invited into another company just gets access to it – they already have a login.
+    if (existing && existing.role === 'customer' && dto.role === 'customer' && dto.companyId) {
+      await this.memberships.upsert({ userId: existing.id, companyId: dto.companyId, memberRole: dto.memberRole ?? 'member' }, ['userId', 'companyId']);
+      await this.audit.log({ actorId, action: 'company.member_add', entityType: 'user', entityId: existing.id, after: { email: existing.email, companyId: dto.companyId } });
+      return { user: existing, inviteToken: null, addedExisting: true };
+    }
+    if (existing) throw new ConflictException('A user with this email already exists');
 
     const user = await this.users.save(
       this.users.create({ email: dto.email.toLowerCase(), role: dto.role, contactId: dto.contactId ?? null, isActive: true }),

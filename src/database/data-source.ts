@@ -10,6 +10,7 @@ import { ProductLineDetails1760200000000 } from './migrations/1760200000000-Prod
 import { QuoteTermsSampleFeedback1760300000000 } from './migrations/1760300000000-QuoteTermsSampleFeedback.js';
 import { SpamHoldTrackingId1760400000000 } from './migrations/1760400000000-SpamHoldTrackingId.js';
 import { RemindersDatesMfa1760500000000 } from './migrations/1760500000000-RemindersDatesMfa.js';
+import { Notifications1760600000000 } from './migrations/1760600000000-Notifications.js';
 import { ALL_ENTITIES } from './entities/index.js';
 
 // Pass the Postgres driver explicitly. TypeORM otherwise loads `pg` by name at runtime, which
@@ -27,7 +28,7 @@ export const dataSourceOptions: DataSourceOptions = {
   password: process.env.DB_PASSWORD,
   ssl: process.env.DB_SSL === 'true' ? { rejectUnauthorized: false } : false,
   entities: ALL_ENTITIES,
-  migrations: [InitialSchema1759700000000, CatalogKindsAndEmailBody1759800000000, InquiryTypeQuoteResponsesProductStages1759900000000, AuditLogDetails1760000000000, EmailSettings1760100000000, ProductLineDetails1760200000000, QuoteTermsSampleFeedback1760300000000, SpamHoldTrackingId1760400000000, RemindersDatesMfa1760500000000],
+  migrations: [InitialSchema1759700000000, CatalogKindsAndEmailBody1759800000000, InquiryTypeQuoteResponsesProductStages1759900000000, AuditLogDetails1760000000000, EmailSettings1760100000000, ProductLineDetails1760200000000, QuoteTermsSampleFeedback1760300000000, SpamHoldTrackingId1760400000000, RemindersDatesMfa1760500000000, Notifications1760600000000],
   migrationsTableName: 'migrations',
   synchronize: false,
   // Clever Cloud's plan allows only 5 connections for this user (DBeaver etc. count too).

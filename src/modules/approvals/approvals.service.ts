@@ -1,6 +1,6 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { DataSource } from 'typeorm';
-import { Approval, Brief, BriefVersion, Document, DocumentVersion, Quote, QuoteLine, QuoteVersion, Sample, SampleRevision } from '../../database/entities/index.js';
+import { Approval, Brief, BriefVersion, Document, DocumentVersion, Quote, QuoteLine, QuoteVersion, Sample, SampleRevision, User } from '../../database/entities/index.js';
 import { AuditService } from '../audit/audit.service.js';
 import { EmailService } from '../email/email.service.js';
 import type { AuthUser } from '../../common/decorators/auth.decorators.js';
@@ -104,6 +104,8 @@ export class ApprovalsService {
         if (!v || !doc || doc.projectId !== projectId) throw notFound();
         if (!isStaff(user) && doc.visibility !== 'customer') throw notFound();
         if (v.scanStatus !== 'clean') throw new BadRequestException('File has not passed the security scan');
+        const uploader = v.uploadedBy ? await m.getRepository(User).findOneBy({ id: v.uploadedBy }) : null;
+        if (!uploader || uploader.role === 'customer') throw new BadRequestException('Only files from the Despina team can be approved');
         const latest = await m.getRepository(DocumentVersion).findOne({ where: { documentId: doc.id }, order: { versionNo: 'DESC' } });
         if (latest?.id !== v.id) throw new BadRequestException('Only the latest version can be approved');
         return { hash: v.sha256, column: 'documentVersionId' };

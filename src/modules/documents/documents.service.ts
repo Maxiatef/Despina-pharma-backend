@@ -1,8 +1,8 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException, PayloadTooLargeException } from '@nestjs/common';
 import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
 import { extname } from 'node:path';
-import { DataSource } from 'typeorm';
-import { Document, DocumentVersion, Project, StatusEvent } from '../../database/entities/index.js';
+import { DataSource, In } from 'typeorm';
+import { Approval, Document, DocumentVersion, Project, StatusEvent, User } from '../../database/entities/index.js';
 import type { AuthUser } from '../../common/decorators/auth.decorators.js';
 import type { DocumentVisibility } from '../../common/enums.js';
 import { sha256 } from '../../common/utils.js';
@@ -79,6 +79,8 @@ export class DocumentsService {
     if (doc.visibility !== 'customer') throw new BadRequestException('Make the document visible to the customer first');
     const version = await this.ds.getRepository(DocumentVersion).findOne({ where: { documentId }, order: { versionNo: 'DESC' } });
     if (!version || version.scanStatus !== 'clean') throw new BadRequestException('The latest version must be released (clean) first');
+    const uploader = version.uploadedBy ? await this.ds.getRepository(User).findOneBy({ id: version.uploadedBy }) : null;
+    if (!uploader || uploader.role === 'customer') throw new BadRequestException('The customer uploaded this file – only team files can be approved');
     const project = await this.ds.getRepository(Project).findOneByOrFail({ id: doc.projectId });
     const to = await this.access.customerEmails(project.companyId);
     if (!to.length) throw new BadRequestException('Nobody from this company has a workspace account yet – invite the customer first');
@@ -213,7 +215,17 @@ export class DocumentsService {
       .orderBy('v.documentId')
       .addOrderBy('v.versionNo', 'DESC')
       .getMany();
-    return docs.map((d) => ({ ...d, latestVersion: rows.find((r) => r.documentId === d.id) ?? null }));
+    // Customers can only approve files the team uploaded, so the list says who uploaded each version.
+    const uploaderIds = [...new Set(rows.map((r) => r.uploadedBy).filter((x): x is string => !!x))];
+    const uploaders = uploaderIds.length ? await this.ds.getRepository(User).findBy({ id: In(uploaderIds) }) : [];
+    const staffIds = new Set(uploaders.filter((u) => u.role !== 'customer').map((u) => u.id));
+    // When the latest version was approved, so the list shows "Approved" instead of the buttons.
+    const approvals: Approval[] = rows.length ? await this.ds.getRepository(Approval).findBy({ documentVersionId: In(rows.map((r) => r.id)) }) : [];
+    return docs.map((d) => {
+      const v = rows.find((r) => r.documentId === d.id);
+      const approvedAt = v && approvals.filter((a) => a.documentVersionId === v.id).map((a) => a.approvedAt).sort().pop();
+      return { ...d, latestVersion: v ? { ...v, uploadedByStaff: !!v.uploadedBy && staffIds.has(v.uploadedBy), approvedAt: approvedAt ?? null } : null };
+    });
   }
 
   async get(user: AuthUser, id: string) {

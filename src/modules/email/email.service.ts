@@ -150,7 +150,30 @@ export class EmailService implements OnModuleInit, OnModuleDestroy {
       }),
     );
     if (!skip) emailRequestContext.getStore()?.jobIds.push(job.id);
+    await this.notifyInApp(input, rendered.subject, manager);
     return job;
+  }
+
+  /**
+   * The same event also shows on the website bell, when the address belongs to someone with a login.
+   * Written even when the e-mail itself is skipped (switched off, test address). Never fails the action.
+   */
+  private async notifyInApp(input: QueueEmailInput, title: string, manager?: EntityManager) {
+    if (['invite', 'password_reset', 'test', 'customer_ack'].includes(input.kind)) return;
+    try {
+      const q = (manager ?? this.ds.manager).query.bind(manager ?? this.ds.manager);
+      const [user] = await q(`SELECT id, role FROM users WHERE lower(email) = lower($1) AND is_active`, [input.to.trim()]);
+      if (!user) return;
+      const customer = user.role === 'customer';
+      const link = input.projectId ? `/${customer ? 'portal' : 'admin'}/projects/${input.projectId}/`
+        : input.inquiryId && !customer ? `/admin/inquiries/${input.inquiryId}/` : customer ? '/portal/' : '/admin/';
+      const section = SECTION[input.template];
+      const target = section && (input.projectId || input.inquiryId) ? `${link}#${section}` : link;
+      await q(`INSERT INTO notifications (user_id, title, link, project_id, inquiry_id) VALUES ($1, $2, $3, $4, $5)`,
+        [user.id, title.slice(0, 300), target, input.projectId ?? null, input.inquiryId ?? null]);
+    } catch (e) {
+      this.logger.warn(`In-app notification not saved: ${(e as Error).message}`);
+    }
   }
 
   private async skipReason(input: QueueEmailInput, manager?: EntityManager): Promise<string | null> {
@@ -334,3 +357,12 @@ function detail(raw: Record<string, unknown>): string {
   const data = (raw.data ?? {}) as Record<string, any>;
   return String(data.bounce?.message ?? data.bounce?.subType ?? data.reason ?? '').slice(0, 300);
 }
+
+/** Which part of the project / lead page a notification opens at (the page scrolls to it). */
+const SECTION: Partial<Record<TemplateName, string>> = {
+  message_to_customer: 'messages', message_to_staff: 'messages', info_request: 'messages',
+  quote_ready: 'quotes', quote_response_staff: 'quotes', quote_response_ack: 'quotes',
+  document_ready: 'documents', approval_request: 'documents', approval_staff: 'approvals',
+  sample_shipped: 'products', feedback_request: 'products', sample_feedback_staff: 'products',
+  stage_update: 'stages', task_assigned: 'tasks', lead_assigned: 'messages',
+};

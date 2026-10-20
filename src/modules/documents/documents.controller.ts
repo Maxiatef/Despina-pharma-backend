@@ -51,16 +51,24 @@ export class DocumentsController {
   @Post('document-versions/:id/download-link') @HttpCode(200)
   link(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string) { return this.uploads.downloadLink(u, id); }
 
-  /** The signed URL itself. Always a download, never rendered inline from our origin. */
+  /** The signed URL itself. Downloads by default; with ?inline=1 safe types (images, PDF) open in the browser. */
   @Public()
   @Get('files/:versionId')
   async file(@Param('versionId', ParseUUIDPipe) versionId: string, @Query() q: SignedQueryDto, @Res() res: Response) {
     const { version, stream } = await this.uploads.openSigned(versionId, q.exp, q.sig);
-    res.setHeader('Content-Type', 'application/octet-stream');
+    // The type comes from the file name, never from the uploader, so an SVG or HTML file can't be shown inline.
+    const ext = version.originalFilename.toLowerCase().split('.').pop() ?? '';
+    const viewType = q.inline === '1' ? VIEWABLE[ext] : undefined;
+    res.setHeader('Content-Type', viewType ?? 'application/octet-stream');
     res.setHeader('X-Content-Type-Options', 'nosniff');
-    res.setHeader('Content-Security-Policy', "default-src 'none'; sandbox");
+    // The browser's PDF viewer doesn't work in a sandboxed page; PDFs still can't reach our site.
+    res.setHeader('Content-Security-Policy', viewType === 'application/pdf' ? "default-src 'none'; object-src 'self'" : "default-src 'none'; sandbox");
     res.setHeader('Cache-Control', 'private, no-store');
-    res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(version.originalFilename)}`);
+    res.setHeader('Content-Disposition', `${viewType ? 'inline' : 'attachment'}; filename*=UTF-8''${encodeURIComponent(version.originalFilename)}`);
     stream.pipe(res);
   }
 }
+
+const VIEWABLE: Record<string, string> = {
+  png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', pdf: 'application/pdf',
+};
