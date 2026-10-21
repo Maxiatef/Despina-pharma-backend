@@ -91,6 +91,7 @@ export class DocumentsService {
       }, { projectId: project.id }));
     }
     if (jobs.every((j) => j === null)) throw new BadRequestException('"Approval requested" e-mails are switched off in Settings → Emails');
+    await this.ds.getRepository(DocumentVersion).update(version.id, { approvalRequestedAt: new Date() });
     await this.ds.getRepository(StatusEvent).insert({ projectId: project.id, actorId: user.id, note: `Approval requested for "${doc.title}" v${version.versionNo}` });
     return { sentTo: to, versionNo: version.versionNo };
   }

@@ -37,6 +37,10 @@ export class DocumentVersion extends BaseEntity {
   @Column({ name: 'scan_status', type: 'enum', enum: SCAN_STATUSES, enumName: 'scan_status', default: 'pending' })
   scanStatus: ScanStatus;
 
+  /** Last time staff asked the customer to approve this version (shown on both sides). */
+  @Column({ name: 'approval_requested_at', type: 'timestamptz', nullable: true })
+  approvalRequestedAt: Date | null;
+
   @Column({ name: 'uploaded_by', type: 'uuid', nullable: true })
   uploadedBy: string | null;
 
