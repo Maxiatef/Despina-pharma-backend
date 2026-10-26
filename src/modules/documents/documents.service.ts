@@ -225,7 +225,8 @@ export class DocumentsService {
     return docs.map((d) => {
       const v = rows.find((r) => r.documentId === d.id);
       const approvedAt = v && approvals.filter((a) => a.documentVersionId === v.id).map((a) => a.approvedAt).sort().pop();
-      return { ...d, latestVersion: v ? { ...v, uploadedByStaff: !!v.uploadedBy && staffIds.has(v.uploadedBy), approvedAt: approvedAt ?? null } : null };
+      // storageKey is the file's place on the server – never sent to the browser (same as get()).
+      return { ...d, latestVersion: v ? { ...v, storageKey: undefined, uploadedByStaff: !!v.uploadedBy && staffIds.has(v.uploadedBy), approvedAt: approvedAt ?? null } : null };
     });
   }
 
